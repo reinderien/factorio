@@ -1,48 +1,62 @@
 #!/usr/bin/env python3
 
 import json, re
+from os.path import getsize
 from requests import Session
 
+session = Session()
 
-def get_pages(progress):
+
+def get_category(name, on_page=None, **kwargs):
     """
     https://stable.wiki.factorio.com is an instance of MediaWiki.
-
-    https://stable.wiki.factorio.com/Category:Infobox_page
-    lists all of the infobox pages we care about, containing recipes.
-
     The API endpoint is
     https://stable.wiki.factorio.com/api.php
     """
-
-    sess = Session()
-
     params = {'action': 'query',
               'generator': 'categorymembers',
-              'gcmtitle': 'Category:Infobox_page',
+              'gcmtitle': f'Category:{name}',
               'gcmtype': 'page',
               'gcmlimit': 500,
-              'prop': 'revisions',
-              'rvprop': 'content',
               'format': 'json'}
-    so_far, total = 0, 0
+    params.update(kwargs)
     while True:
-        resp = sess.get('https://stable.wiki.factorio.com/api.php',
-                        params=params)
+        resp = session.get('https://stable.wiki.factorio.com/api.php',
+                           params=params)
         resp.raise_for_status()
 
         doc = resp.json()
-        pages = doc['query']['pages'].values()
-        contents = tuple(p for p in pages if 'revisions' in p)
-
-        so_far += len(contents)
-        total = len(pages)
-        progress(so_far, total)
-        yield from contents
+        yield from doc['query']['pages'].values()
+        if on_page:
+            on_page()
 
         if 'batchcomplete' in doc:
             break
         params.update(doc['continue'])
+
+
+def get_archived_titles():
+    return get_category('Archived')
+
+
+def get_item_pages(progress):
+    """
+    Category:Infobox_page lists all of the infobox pages we care about,
+    containing recipes.
+    """
+    so_far, total = 0, 0
+
+    def on_page():
+        nonlocal total
+        progress(so_far, total)
+        total = 0
+
+    for page in get_category('Infobox_page', on_page=on_page,
+                             prop='revisions', rvprop='content'):
+        total += 1
+        if 'revisions' in page:
+            so_far += 1
+            yield page
 
 
 line_re = re.compile(r'\n\s*\|')
@@ -54,7 +68,7 @@ var_re = re.compile(
     r'\s*$')
 
 
-def parse(pages):
+def parse(pages, archived_titles):
     """
     Example:
 
@@ -96,9 +110,11 @@ def parse(pages):
                 .rsplit('}}', maxsplit=1)[0]
             )
         )
+        title = p['title'].split(':', maxsplit=1)[1]
         d = {
             'pageid': p['pageid'],
-            'title': p['title'].split(':', maxsplit=1)[1]
+            'title': title,
+            'archived': title in archived_titles
         }
         d.update(dict(e.groups() for e in entries if e))
         yield d
@@ -113,8 +129,16 @@ def main():
     def progress(so_far, total):
         print(f'{so_far}/{total} {so_far/total:.0%}', end='\r')
 
-    save('recipes.json', parse(get_pages(progress)))
-    print()
+    print('Getting archived items... ', end='')
+    archived_titles = {p['title'] for p in get_archived_titles()}
+    print(len(archived_titles))
+
+    print('Getting item content...')
+    items = parse(get_item_pages(progress), archived_titles)
+
+    fn = 'recipes.json'
+    save(fn, items)
+    print(f'\n{getsize(fn)//1024} kiB on disk')
 
 
 if __name__ == '__main__':
