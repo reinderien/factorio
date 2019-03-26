@@ -46,7 +46,8 @@ def get_pages(progress):
         params.update(doc['continue'])
 
 
-box_re = re.compile(
+line_re = re.compile(r'\n\s*\|')
+var_re = re.compile(
     r'^\s*'
     r'(\S+)'
     r'\s*=\s*'
@@ -60,33 +61,40 @@ def parse(pages):
 
     {{Infobox
     |map-color = 006090
-    |prototype-type = assembling-machine
-    |internal-name = assembling-machine-3
-    |expensive-total-raw = Time, 465.5 + Copper plate, 460 + Iron plate, 330 + Plastic bar, 80
+    |prototype-type = mining-drill
+    |internal-name = burner-mining-drill
+    |expensive-total-raw = Time, 8 + Iron plate, 30 + Stone, 10
+    |expensive-recipe = Time, 4 + Iron gear wheel, 6 + Iron plate, 6 + Stone furnace, 2
     |category = Production
-    |image = assembling_machine_3_entity
-    |health = 400
-    |stack-size    =50
-    |energy        =210 kW electric
-    |drain         =7.0 kW electric
-    |dimensions    =3×3
-    |crafting-speed =1.25
-    |pollution     =1.8
-    |modules       =4
-    |recipe = Time, 0.5 + Assembling machine 2, 2 + Speed module, 4
-    |total-raw = Time, 302.5 + Copper plate, 148 + Iron plate, 148 + Plastic bar, 40
-    |required-technologies = Automation 3
-    |producers     =Manual + Assembling machine
+    |image=Burner-Mining-Drill-Example
+    |health = 150
+    |stack-size=50
+    |dimensions=2×2
+    |energy=300 {{Translation|kW}} burner
+    |mining-power=2.5
+    |mining-speed=0.35
+    |mining-area=2×2
+    |pollution=10
+    |valid-fuel = Wood + Raw wood + Wooden chest + Coal + Solid fuel + Small electric pole + Rocket fuel + Nuclear fuel
+    |recipe = Time, 2 + Iron gear wheel, 3 + Iron plate, 3 + Stone furnace, 1
+    |total-raw = Time, 4 + Iron plate, 9 + Stone, 5
+    |producers=Manual + Assembling machine 2 + Assembling machine 3
     }}<noinclude>
     [[Category:Infobox page]]
     </noinclude>
+
+    Splitting on newline isn't a great idea, because
+    https://www.mediawiki.org/wiki/Help:Templates#Named_parameters
+    shows that only the pipe is mandatory as a separator. However, only
+    splitting on pipe is worse, because there are pipes on the inside of links.
     """
     for p in pages:
         entries = (
-            box_re.match(e) for e in
-            p.split('{{', maxsplit=1)[1]
-            .split('}}', maxsplit=1)[0]
-            .split('|')
+            var_re.match(e)
+            for e in line_re.split(
+                p.split('{{', maxsplit=1)[1]
+                .rsplit('}}', maxsplit=1)[0]
+            )
         )
         yield dict(e.groups() for e in entries if e)
 
@@ -98,9 +106,10 @@ def save(fn, recipes):
 
 def main():
     def progress(so_far, total):
-        print(f'{so_far}/{total} {so_far/total:.1%}\r')
+        print(f'{so_far}/{total} {so_far/total:.0%}\r')
 
     save('recipes.json', parse(get_pages(progress)))
+    print()
 
 
 if __name__ == '__main__':
