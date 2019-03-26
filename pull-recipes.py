@@ -33,8 +33,7 @@ def get_pages(progress):
 
         doc = resp.json()
         pages = doc['query']['pages'].values()
-        contents = tuple(p['revisions'][0]['*'] for p in pages
-                         if 'revisions' in p)
+        contents = tuple(p for p in pages if 'revisions' in p)
 
         so_far += len(contents)
         total = len(pages)
@@ -89,14 +88,20 @@ def parse(pages):
     splitting on pipe is worse, because there are pipes on the inside of links.
     """
     for p in pages:
+        content = p['revisions'][0]['*']
         entries = (
             var_re.match(e)
             for e in line_re.split(
-                p.split('{{', maxsplit=1)[1]
+                content.split('{{', maxsplit=1)[1]
                 .rsplit('}}', maxsplit=1)[0]
             )
         )
-        yield dict(e.groups() for e in entries if e)
+        d = {
+            'pageid': p['pageid'],
+            'title': p['title'].split(':', maxsplit=1)[1]
+        }
+        d.update(dict(e.groups() for e in entries if e))
+        yield d
 
 
 def save(fn, recipes):
