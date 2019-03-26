@@ -111,7 +111,7 @@ def save(fn, recipes):
 
 def main():
     def progress(so_far, total):
-        print(f'{so_far}/{total} {so_far/total:.0%}\r')
+        print(f'{so_far}/{total} {so_far/total:.0%}', end='\r')
 
     save('recipes.json', parse(get_pages(progress)))
     print()
