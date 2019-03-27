@@ -1,62 +1,68 @@
 #!/usr/bin/env python3
 
 import json, re
+from itertools import chain
 from os.path import getsize
 from requests import Session
+from sys import stdout
 
 session = Session()
 
 
-def get_category(name, on_page=None, **kwargs):
+def get_mediawiki(content=False, progress=None, **kwargs):
     """
     https://stable.wiki.factorio.com is an instance of MediaWiki.
     The API endpoint is
     https://stable.wiki.factorio.com/api.php
     """
     params = {'action': 'query',
-              'generator': 'categorymembers',
-              'gcmtitle': f'Category:{name}',
-              'gcmtype': 'page',
-              'gcmlimit': 500,
-              'format': 'json'}
-    params.update(kwargs)
+              'format': 'json',
+              **kwargs}
+    if content:
+        params.update({'prop': 'revisions',
+                       'rvprop': 'content'})
+    so_far = 0
     while True:
         resp = session.get('https://stable.wiki.factorio.com/api.php',
                            params=params)
         resp.raise_for_status()
 
         doc = resp.json()
-        yield from doc['query']['pages'].values()
-        if on_page:
-            on_page()
+        pages = doc['query']['pages'].values()
+        if content:
+            full_pages = tuple(p for p in pages if 'revisions' in p)
+            if progress:
+                so_far += len(full_pages)
+                progress(so_far, len(pages))
+            yield from full_pages
+        else:
+            yield from pages
 
         if 'batchcomplete' in doc:
             break
         params.update(doc['continue'])
 
 
+def get_category(name, content=False, progress=None, **kwargs):
+    return get_mediawiki(content=content, progress=progress,
+                         generator='categorymembers',
+                         gcmtitle=f'Category:{name}',
+                         gcmtype='page',
+                         gcmlimit=500,
+                         **kwargs)
+
+
 def get_archived_titles():
     return get_category('Archived')
 
 
-def get_item_pages(progress):
-    """
-    Category:Infobox_page lists all of the infobox pages we care about,
-    containing recipes.
-    """
-    so_far, total = 0, 0
+def get_infoboxes(progress):
+    return get_category('Infobox_page', content=True, progress=progress)
 
-    def on_page():
-        nonlocal total
-        progress(so_far, total)
-        total = 0
 
-    for page in get_category('Infobox_page', on_page=on_page,
-                             prop='revisions', rvprop='content'):
-        total += 1
-        if 'revisions' in page:
-            so_far += 1
-            yield page
+def get_inter_tables(titles, progress):
+    return get_mediawiki(content=True, progress=progress,
+                         titles='|'.join(titles))
 
 
 line_re = re.compile(r'\n\s*\|')
@@ -68,7 +74,7 @@ var_re = re.compile(
     r'\s*$')
 
 
-def parse(pages, archived_titles):
+def parse_infobox(page):
     """
     Example:
 
@@ -101,44 +107,194 @@ def parse(pages, archived_titles):
     shows that only the pipe is mandatory as a separator. However, only
     splitting on pipe is worse, because there are pipes on the inside of links.
     """
-    for p in pages:
-        content = p['revisions'][0]['*']
-        entries = (
-            var_re.match(e)
-            for e in line_re.split(
-                content.split('{{', maxsplit=1)[1]
-                .rsplit('}}', maxsplit=1)[0]
-            )
+
+    content = page['revisions'][0]['*']
+    entries = (
+        var_re.match(e)
+        for e in line_re.split(
+            content.split('{{', maxsplit=1)[1]
+            .rsplit('}}', maxsplit=1)[0]
         )
-        title = p['title'].split(':', maxsplit=1)[1]
-        d = {
-            'pageid': p['pageid'],
-            'title': title,
-            'archived': title in archived_titles
-        }
-        d.update(dict(e.groups() for e in entries if e))
-        yield d
+    )
+    title = page['title'].split(':', maxsplit=1)[1]
+    d = {'pageid': page['pageid'],
+         'title': title}
+    d.update(dict(e.groups() for e in entries if e))
+    return d
+
+
+part_tok = r'\s*([^|{}]*?)'
+border_tok = r'\s*\|'
+row_image_re = re.compile(
+    r'\{\{\s*'
+    r'(?P<type>\w+)'
+    f'{border_tok}'
+    f'{part_tok}'
+    r'(?:'
+       f'{border_tok}'    
+       f'{part_tok}'
+    r')?'
+    r'(?:'
+       f'{border_tok}'
+       r'[^{}]*'
+    r')?'
+    r'\}\}\s*'
+    r'(?P<sep>'
+      r'(?:'
+        r'\|\||\+|→'
+      r')?'
+    r')',
+)
+
+
+def iter_cells(row):
+    """
+    e.g.
+    | {{Icon|Solid fuel from light oil||}}
+    || {{icon|Light oil|10}} + {{icon|time|3}}
+    || {{icon|Solid fuel|1}}
+    or
+    | {{Imagelink|Oil refinery}}
+    || {{Imagelink|Basic oil processing}}
+    || {{Icon|Crude oil|100}} + {{icon|Time|5}}
+    → {{Icon|Heavy oil|30}} + ({{Icon|Light oil|30}} {{Icon|Petroleum gas|40}})
+    """
+
+    cell = []
+    for m in row_image_re.finditer(row):
+        if m.group('sep') == '||':
+            cell.append(m.groups()[:-1])
+            yield cell
+            cell = []
+        else:
+            cell.append(m.groups())
+    if cell:
+        yield cell
+
+
+def parse_inter_table(page):
+    """
+    Example:
+
+    {| class="wikitable"
+    ! Building !! Process !! Results
+    |-
+    | {{Imagelink|Oil refinery}} || {{Imagelink|Basic oil processing}} || {{Icon|Crude oil|100}} + {{icon|Time|5}} → {{Icon|Heavy oil|30}} + ({{Icon|Light oil|30}} {{Icon|Petroleum gas|40}})
+    |-
+    | {{Imagelink|Oil refinery}} || {{Imagelink|Advanced oil processing}} || {{Icon|Crude oil|100}} + {{icon|Water|50}} + {{icon|Time|5}} → {{Icon|Heavy oil|10}} + ({{Icon|Light oil|45}} {{Icon|Petroleum gas|55}})
+    |-
+    | {{Imagelink|Oil refinery}} || {{imagelink|Coal liquefaction}} || {{icon|Coal|10}} + {{Icon|Heavy oil|25}} + {{icon|Steam|50}} + {{icon|Time|5}} → {{Icon|Heavy oil|35}} + ({{Icon|Light oil|15}} + {{Icon|Petroleum gas|20}})
+    |}
+
+    or
+
+    {| class="wikitable"
+    ! Process !! Input !! Output
+    |-
+    | {{Icon|Solid fuel from heavy oil||}} || {{icon|Heavy oil|20}} + {{icon|time|3}} || {{icon|Solid fuel|1}}
+    |-
+    | {{Icon|Solid fuel from light oil||}} || {{icon|Light oil|10}} + {{icon|time|3}} || {{icon|Solid fuel|1}}
+    |-
+    | {{Icon|Solid fuel from petroleum gas||}} || {{icon|Petroleum gas|20}} + {{icon|time|3}} || {{icon|Solid fuel|1}}
+    |-
+    |}
+    """
+    title = page['title']
+    content = page['revisions'][0]['*']
+    if '{|' not in content:
+        return title, {}
+
+    rows = []
+    body = (content
+            .replace('\n', '')
+            .split('{|', maxsplit=1)[1]
+            .rsplit('|}', maxsplit=1)[0])
+    row_strings = body.split('|-')
+    heads = tuple(h.strip().lower() for h in row_strings[0]
+                  .split('!', maxsplit=1)[1]
+                  .split('!!'))
+
+    for line in row_strings[1:]:
+        inputs = []
+        outputs = []
+        row = {'inputs': inputs, 'outputs': outputs}
+        for head, parts in zip(heads, iter_cells(line)):
+            if head in ('process', 'building'):
+                row[head.lower()] = parts[0][1]
+                continue
+            elif head not in ('input', 'output', 'results'):
+                if head == '':
+                    return title, {}  # Space science pack edge case
+                raise ValueError(f'Unrecognized head {head}')
+
+            if 'input' in head:
+                side = inputs
+            elif 'output' in head:
+                side = outputs
+            else:
+                side = inputs
+                if 'results' not in head:
+                    raise ValueError(f'Unexpected heading {head}')
+            for part in parts:
+                res_type = part[0].lower()
+                if res_type != 'icon':
+                    raise ValueError(f'Unexpected resource type {res_type}')
+                ingredient = {'name': part[1],
+                              'qty': int(part[2])}
+                side.append(ingredient)
+                if 'results' in head and len(part) == 4 and part[-1] == '→':
+                    side = outputs
+
+        if inputs or outputs:
+            rows.append(row)
+
+    return title, {'recipes': rows}
+
+
+def inter_needed(items):
+    return (i['title'] for i in items if
+            not i['archived']
+            and i.get('category') == 'Intermediate products'
+            and not ('cost' in i or 'recipe' in i))
 
 
 def save(fn, recipes):
     with open(fn, 'w') as f:
-        json.dump(tuple(recipes), f, indent=4)
+        json.dump(recipes, f, indent=4)
 
 
 def main():
     def progress(so_far, total):
         print(f'{so_far}/{total} {so_far/total:.0%}', end='\r')
+        stdout.flush()
 
     print('Getting archived items... ', end='')
     archived_titles = {p['title'] for p in get_archived_titles()}
     print(len(archived_titles))
 
     print('Getting item content...')
-    items = parse(get_item_pages(progress), archived_titles)
+    items = tuple(parse_infobox(p) for p in get_infoboxes(progress))
+    items_by_name = {i['title']: i for i in items}
+    for item in items:
+        item['archived'] = item['title'] in archived_titles
+
+    print('\nFilling in intermediate products...')
+    inter_tables = get_inter_tables(inter_needed(items), progress)
+    used = 0
+    for table_page in inter_tables:
+        try:
+            title, recipes = parse_inter_table(table_page)
+            if recipes:
+                used += 1
+                items_by_name[title].update(recipes)
+        except Exception as e:
+            print(f'\nWarning: {table_page["title"]} failed to parse - {e}')
+    print(f'\n{used} intermediate tables used.')
 
     fn = 'recipes.json'
-    save(fn, items)
-    print(f'\n{getsize(fn)//1024} kiB on disk')
+    print(f'Saving to {fn}... ', end='')
+    save(fn, items_by_name)
+    print(f'{getsize(fn)//1024} kiB')
 
 
 if __name__ == '__main__':
