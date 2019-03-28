@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import json, re
-from itertools import chain
 from os.path import getsize
 from requests import Session
 from sys import stdout
