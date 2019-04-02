@@ -11,11 +11,6 @@ si_facs = {
 }
 
 
-def parse_power(s: str) -> float:
-    m = power_re.match(s)
-    return float(m[1]) * si_facs[m[2]]
-
-
 class Item:
     def __init__(self, data: dict):
         self.data = data
@@ -28,6 +23,9 @@ class Item:
                               for k, v in data.items()})
         if self.prototype_type == 'technology':
             self.producers = 'Lab'
+        elif self.title in ('Flamethrower turret', 'Gun turret',
+                            'Laser turret'):
+            self.producers = 'Assembling machine + manual'
 
     def __str__(self) -> str:
         return self.title
@@ -36,6 +34,7 @@ class Item:
     def keep(self) -> bool:
         return (
             (not self.archived) and
+            (self.title not in {'Rock', 'Tree'}) and
             (
                 any(self.data.get(k) for k in ('cost', 'recipe', 'recipes'))
                 or 'mining-hardness' in self.data
@@ -89,7 +88,7 @@ class Recipe:
         else:
             self.title = f'{resource} ({producer})'
 
-        self.rates = rates
+        self.rates = dict(rates)
         self.producer = producer
         self.multiply_producer(producer)
 
@@ -97,6 +96,8 @@ class Recipe:
         return self.title
 
     def multiply_producer(self, prod: Item):
+        if prod.title == 'Nuclear reactor':
+            return  # no crafting rate modifier
         rate = float(prod.crafting_speed)
         for k in self.rates:
             self.rates[k] *= rate
@@ -124,10 +125,17 @@ class TechRecipe(Recipe):
         self.rates[self.resource] /= self.cost_multiplier
 
 
-class PumpjackRecipe(Recipe):
-    def multiply_producer(self, pumpjack: Item):
-        # Assume default 100% yield
-        self.rates[self.resource] = 10
+class FluidRecipe(Recipe):
+    # Pumpjacks, offshore pumps
+    def multiply_producer(self, producer: Item):
+        if producer.title == 'Pumpjack':
+            yield_factor = 1.00  # Assumed
+            rate = 10*yield_factor
+        elif producer.title == 'Offshore pump':
+            rate = 1200
+        else:
+            raise NotImplementedError()
+        self.rates[self.resource] = rate
 
 
 class RecipeFactory:
@@ -135,24 +143,36 @@ class RecipeFactory:
         self.resource = resource
         self.producers = ()
         if rates:
-            self.producers = (all_items[rates['building']],)
-            self.title = rates['process']
-            self.rates = self.calc_recipe(rates['inputs'], rates['outputs'])
+            self.producers, self.title, self.rates = self.intermediate(rates)
         else:
             self.title = None
+            needs_producers = False
             recipe = resource.recipe or resource.cost
             if recipe:
                 self.rates = self.parse_recipe(recipe)
                 if resource.prototype_type == 'technology':
-                    self.producers = (all_items['Lab'],)
+                    self.producers = (all_items['lab'],)
+                else:
+                    needs_producers = True
             else:
-                if resource.mining_time or resource.title == 'Crude oil':
+                if resource.mining_time or \
+                        resource.title in {'Crude oil', 'Water'}:
                     self.rates = {}
+                    if resource.title != 'Raw wood':
+                        needs_producers = True
                 else:
                     raise NotImplementedError()
-            if (not self.producers) and (resource.mining_time or recipe) and \
-               resource.title != 'Raw wood':
+            if needs_producers:
                 self.producers = tuple(parse_producers(resource.producers))
+
+    def intermediate(self, rates) -> (Iterable[Item], str, dict):
+        if self.resource.producers:
+            producers = parse_producers(self.resource.producers)
+        else:
+            producers = (all_items[rates['building'].lower()],)
+        title = rates['process']
+        sane_rates = self.calc_recipe(rates['inputs'], rates['outputs'])
+        return producers, title, sane_rates
 
     @staticmethod
     def parse_side(s: str) -> Dict[str, float]:
@@ -166,7 +186,11 @@ class RecipeFactory:
     def calc_recipe(inputs: Dict[str, float],
                     outputs: Dict[str, float]) -> Dict[str, float]:
         rates = dict(outputs)
-        t = inputs.pop('Time')
+        if 'time' in inputs:
+            k = 'time'
+        else:
+            k = 'Time'
+        t = inputs.pop(k)
         for k in rates:
             rates[k] /= t
         for k, v in inputs.items():
@@ -183,29 +207,33 @@ class RecipeFactory:
 
         return self.calc_recipe(self.parse_side(inputs), outputs)
 
+    def produce(self, cls, producer, **kwargs):
+        recipe = cls(self.resource.title, producer, self.rates, **kwargs)
+        if producer.pollution:
+            recipe.rates['Pollution'] = float(producer.pollution)
+        return recipe
+
     def for_energy(self, cls, **kwargs) -> Iterable[Recipe]:
         for producer in self.producers:
-            rates = dict(self.rates)
-
-            if producer.pollution:
-                rates['Pollution'] = float(producer.pollution)
-
             energy = -parse_power(producer.energy)
+
             if 'electric' in producer.energy:
-                rates['Energy'] = energy
-                yield cls(self.resource.title, producer, rates, **kwargs)
+                recipe = self.produce(cls, producer, **kwargs)
+                recipe.rates['Energy'] = energy
+                yield recipe
+
             elif 'burner' in producer.energy:
                 for fuel_name in producer.valid_fuel.split('+'):
-                    fuel_name = fuel_name.strip()
+                    fuel_name = fuel_name.strip().lower()
                     fuel = all_items[fuel_name]
                     fuel_value = parse_power(fuel.fuel_value)
-                    rates_with_fuel = dict(rates)
-                    rates_with_fuel[fuel.title] = energy / fuel_value
                     kwargs['title'] = (f'{self.resource} '
                                        f'({producer} '
                                        f'fueled by {fuel_name})')
-                    yield cls(self.resource.title, producer,
-                              rates_with_fuel, **kwargs)
+
+                    recipe = self.produce(cls, producer, **kwargs)
+                    recipe.rates[fuel.title] = energy / fuel_value
+                    yield recipe
             else:
                 raise NotImplementedError()
 
@@ -242,20 +270,39 @@ class RecipeFactory:
                 mining_hardness=float(self.resource.mining_hardness),
                 mining_time=float(self.resource.mining_time))
         elif self.resource.title == 'Crude oil':
-            yield from self.for_energy(PumpjackRecipe)
+            yield from self.for_energy(FluidRecipe)
+        elif self.resource.title == 'Water':
+            yield self.produce(FluidRecipe, self.producers[0])
         else:
             raise NotImplementedError()
 
 
+def parse_power(s: str) -> float:
+    m = power_re.match(s)
+    return float(m[1]) * si_facs[m[2]]
+
+
+def items_of_type(t: str) -> Iterable[Item]:
+    return (i for i in all_items.values()
+            if i.prototype_type == t)
+
+
+barrel_re = re.compile(r'empty .+ barrel')
+
+
 def parse_producers(s: str) -> Iterable[Item]:
-    if s == 'Furnace':
-        return (i for i in all_items.values()
-                if i.prototype_type == 'furnace')
-    if s == 'Assembling machine':
-        return (i for i in all_items.values()
-                if i.prototype_type == 'assembling-machine')
-    return (all_items[p.strip()] for p in s.split('+')
-            if 'manual' not in p.lower())
+    for p in s.split('+'):
+        p = p.strip().lower()
+        if p == 'furnace':
+            yield from items_of_type('furnace')
+        elif p == 'assembling machine':
+            yield from items_of_type('assembling-machine')
+        elif p == 'mining drill':
+            yield from items_of_type('mining-drill')
+        elif p == 'manual' or barrel_re.match(p):
+            continue
+        else:
+            yield all_items[p]
 
 
 def trim(items: dict):
@@ -268,7 +315,7 @@ def trim(items: dict):
 def main():
     with open('recipes.json') as f:
         global all_items
-        all_items = {k: Item(d) for k, d in json.load(f).items()}
+        all_items = {k.lower(): Item(d) for k, d in json.load(f).items()}
     trim(all_items)
 
     '''
@@ -298,13 +345,14 @@ def main():
     for item in all_items.values():
         try:
             item_recipes = tuple(item.get_recipes())
-        except Exception as e:
-            print(e)
+        except NotImplementedError as e:
+            print(f'Not implemented: {item}')
             continue
         recipes.extend(item_recipes)
         for recipe in item_recipes:
             resources.update(recipe.rates.keys())
 
+    return recipes
 
 if __name__ == '__main__':
     main()
