@@ -227,11 +227,12 @@ class RecipeFactory:
                     fuel_name = fuel_name.strip().lower()
                     fuel = all_items[fuel_name]
                     fuel_value = parse_power(fuel.fuel_value)
-                    kwargs['title'] = (f'{self.resource} '
-                                       f'({producer} '
-                                       f'fueled by {fuel_name})')
+                    new_kwargs = dict(kwargs)
+                    new_kwargs['title'] = (f'{self.resource} '
+                                           f'({producer} '
+                                           f'fueled by {fuel_name})')
 
-                    recipe = self.produce(cls, producer, **kwargs)
+                    recipe = self.produce(cls, producer, **new_kwargs)
                     recipe.rates[fuel.title] = energy / fuel_value
                     yield recipe
             else:
@@ -296,9 +297,11 @@ def parse_producers(s: str) -> Iterable[Item]:
         if p == 'furnace':
             yield from items_of_type('furnace')
         elif p == 'assembling machine':
-            yield from items_of_type('assembling-machine')
+            yield from (all_items[f'assembling machine {i}']
+                        for i in range(1, 4))
         elif p == 'mining drill':
-            yield from items_of_type('mining-drill')
+            yield from (all_items[f'{t} mining drill']
+                        for t in ('burner', 'electric'))
         elif p == 'manual' or barrel_re.match(p):
             continue
         else:
@@ -320,16 +323,9 @@ def main():
 
     '''
     Todo:
-    Add Energy, Pollution resources and update all recipes
-    
-    Add all recipes:
-    - All permitted producers:
-        - miners (3)
-        - assemblers (4)
-        - Chemical plant, oil refinery
-        - labs
-        - power plants
-    - 
+    Add power plants
+    Add steam
+    Add space science pack
     
     Be able to enforce these constraints:
     - minimum or maximize end production
@@ -353,6 +349,7 @@ def main():
             resources.update(recipe.rates.keys())
 
     return recipes
+
 
 if __name__ == '__main__':
     main()
