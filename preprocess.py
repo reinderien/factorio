@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json, re
+from collections import defaultdict
 from typing import Dict, Iterable
 
 
@@ -188,7 +189,7 @@ class RecipeFactory:
     @staticmethod
     def calc_recipe(inputs: Dict[str, float],
                     outputs: Dict[str, float]) -> Dict[str, float]:
-        rates = dict(outputs)
+        rates = defaultdict(float, outputs)
         if 'time' in inputs:
             k = 'time'
         else:
@@ -197,7 +198,7 @@ class RecipeFactory:
         for k in rates:
             rates[k] /= t
         for k, v in inputs.items():
-            rates[k] = -v / t
+            rates[k] -= v / t
         return rates
 
     def parse_recipe(self, recipe: str) -> Dict[str, float]:
