@@ -26,6 +26,9 @@ class Item:
         elif self.title in ('Flamethrower turret', 'Gun turret',
                             'Laser turret'):
             self.producers = 'Assembling machine + manual'
+        elif self.title == 'Space science pack':
+            self.recipe = 'Time, 41.25 + Rocket part, 100 = ' \
+                          'Space science pack, 1000'
 
     def __str__(self) -> str:
         return self.title
@@ -325,7 +328,6 @@ def main():
     Todo:
     Add power plants
     Add steam
-    Add space science pack
     
     Be able to enforce these constraints:
     - minimum or maximize end production
@@ -341,7 +343,7 @@ def main():
     for item in all_items.values():
         try:
             item_recipes = tuple(item.get_recipes())
-        except NotImplementedError as e:
+        except NotImplementedError:
             print(f'Not implemented: {item}')
             continue
         recipes.extend(item_recipes)
