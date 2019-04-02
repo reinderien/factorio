@@ -214,8 +214,8 @@ def parse_inter_table(page):
                   .split('!!'))
 
     for line in row_strings[1:]:
-        inputs = []
-        outputs = []
+        inputs = {}
+        outputs = {}
         row = {'inputs': inputs, 'outputs': outputs}
         for head, parts in zip(heads, iter_cells(line)):
             if head in ('process', 'building'):
@@ -238,9 +238,7 @@ def parse_inter_table(page):
                 res_type = part[0].lower()
                 if res_type != 'icon':
                     raise ValueError(f'Unexpected resource type {res_type}')
-                ingredient = {'name': part[1],
-                              'qty': int(part[2])}
-                side.append(ingredient)
+                side[part[1]] = int(part[2])
                 if 'results' in head and len(part) == 4 and part[-1] == '→':
                     side = outputs
 
