@@ -129,7 +129,8 @@ class Recipe:
         return self.title
 
     def multiply_producer(self, prod: Item):
-        if prod.title in {'Boiler', 'Heat exchanger'}:
+        if prod.title in {'Boiler', 'Heat exchanger', 'Solar panel', 'Steam engine',
+                          'Steam turbine'}:
             pass  # no crafting rate modifier
         elif prod.title == 'Nuclear reactor':
             self.rates['Heat'] = parse_power(prod.energy)
@@ -308,6 +309,8 @@ class RecipeFactory:
                 yield TechRecipe(self.resource.title, self.producers[0],
                                  self.rates,
                                  float(self.resource.cost_multiplier))
+            elif self.resource.title == 'Energy':
+                yield self.produce(Recipe, self.producers[0], title=self.title)
             else:
                 yield from self.for_energy(Recipe, title=self.title)
         elif self.resource.title == 'Raw wood':
@@ -326,7 +329,7 @@ class RecipeFactory:
 
 
 def parse_power(s: str) -> float:
-    m = power_re.match(s)
+    m = power_re.search(s)
     return float(m[1]) * si_facs[m[2]]
 
 
@@ -362,16 +365,81 @@ def trim(items: dict):
         del items[k]
 
 
+def energy_data() -> dict:
+    solar_ave = parse_power(next(
+        s for s in all_items['solar panel'].power_output.split('<br/>')
+        if 'average' in s))
+
+    eng = all_items['steam engine']
+    eng_rate = float(eng.fluid_consumption
+                     .split('/')[0])
+    eng_power = parse_power(eng.power_output)
+
+    turbine = all_items['steam turbine']
+    turbine_rate = float(turbine.fluid_consumption
+                         .split('/')[0])
+    turbine_power_500 = 5.82e6  # ignore non-precise data and use this instead
+    turbine_power_165 = 1.8e6   # from wiki page body
+
+    return {
+        'title': 'Energy',
+        'recipes': (
+            {
+                'building': 'Solar panel',
+                'process': 'Energy (Solar panel)',
+                'inputs': {
+                    'Time': 1
+                },
+                'outputs': {
+                    'Energy': solar_ave
+                }
+            },
+            {
+                'building': 'Steam engine',
+                'process': 'Energy (Steam engine)',
+                'inputs': {
+                    'Time': 1,
+                    'Steam165': eng_rate
+                },
+                'outputs': {
+                    'Energy': eng_power
+                }
+            },
+            {
+                'building': 'Steam turbine',
+                'process': 'Energy (Steam turbine, 165C)',
+                'inputs': {
+                    'Time': 1,
+                    'Steam165': turbine_rate
+                },
+                'outputs': {
+                    'Energy': turbine_power_165
+                }
+            },
+            {
+                'building': 'Steam turbine',
+                'process': 'Energy (Steam turbine, 500C)',
+                'inputs': {
+                    'Time': 1,
+                    'Steam500': turbine_rate
+                },
+                'outputs': {
+                    'Energy': turbine_power_500
+                }
+            }
+        )
+    }
+
+
 def main():
     with lzma.open('recipes.json.xz') as f:
         global all_items
         all_items = {k.lower(): Item(d) for k, d in json.load(f).items()}
     trim(all_items)
+    all_items['energy'] = Item(energy_data())
 
     '''
     Todo:
-    Add power plants, heat
-    
     Be able to enforce these constraints:
     - minimum or maximize end production
     - maximum or minimize:
@@ -384,11 +452,7 @@ def main():
     recipes = []
     resources = set()
     for item in all_items.values():
-        try:
-            item_recipes = tuple(item.get_recipes())
-        except NotImplementedError:
-            print(f'Not implemented: {item}')
-            continue
+        item_recipes = tuple(item.get_recipes())
         recipes.extend(item_recipes)
         for recipe in item_recipes:
             resources.update(recipe.rates.keys())
