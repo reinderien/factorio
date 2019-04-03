@@ -23,7 +23,7 @@ class Item:
         self.__dict__.update({k.replace('-', '_'): v
                               for k, v in data.items()})
         self.fill_gaps()
-        
+
     def fill_gaps(self):
         if self.prototype_type == 'technology':
             self.producers = 'Lab'
@@ -146,6 +146,8 @@ class MiningRecipe(Recipe):
         self.rates[self.resource] = self.producer.mine_rate(
             self.mining_hardness, self.mining_time
         )
+        if self.resource == 'Uranium ore':
+            self.rates['Sulphuric acid'] = -self.rates[self.resource]
 
 
 class TechRecipe(Recipe):
