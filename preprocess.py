@@ -2,6 +2,7 @@
 
 import json, lzma, re
 from collections import defaultdict
+from os.path import getsize
 from typing import Dict, Iterable, Set
 
 
@@ -435,7 +436,6 @@ def load(fn: str):
     with lzma.open(fn) as f:
         global all_items
         all_items = {k.lower(): Item(d) for k, d in json.load(f).items()}
-    trim(all_items)
     all_items['energy'] = Item(energy_data())
 
 
@@ -463,7 +463,7 @@ def write_recipes(recipes: Dict[str, Recipe], resources: Set[str], fn: str):
     rec_width = field_size(recipes)
     float_width = 16
 
-    with open(fn, 'w') as f:
+    with lzma.open(fn, 'wt') as f:
         f.write(' '*(rec_width+3))
         col_format = f'{{:>{float_width+6}}}",'
         for res in resources:
@@ -490,9 +490,21 @@ def main():
         - pollution
     """
 
-    load('recipes.json.xz')
+    fn = 'recipes.json.xz'
+    print(f'Loading {fn}... ', end='')
+    load(fn)
+    print(f'{len(all_items)} items')
+
+    trim(all_items)
+
+    print('Calculating recipes... ', end='')
     recipes, resources = get_recipes()
-    write_recipes(recipes, resources, 'recipes.csv')
+    print(f'{len(recipes)} recipes, {len(resources)} resources')
+
+    fn = 'recipes.csv.xz'
+    print(f'Saving to {fn}... ', end='')
+    write_recipes(recipes, resources, fn)
+    print(f'{getsize(fn)//1024} kiB')
 
 
 if __name__ == '__main__':
