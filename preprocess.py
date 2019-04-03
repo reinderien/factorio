@@ -2,7 +2,8 @@
 
 import json, lzma, re
 from collections import defaultdict
-from typing import Dict, Iterable
+from math import ceil
+from typing import Dict, Iterable, Set, Sequence
 
 
 power_re = re.compile(r'([0-9.]+) .*([kMG])(W|J)')
@@ -431,24 +432,15 @@ def energy_data() -> dict:
     }
 
 
-def main():
-    with lzma.open('recipes.json.xz') as f:
+def load(fn: str):
+    with lzma.open(fn) as f:
         global all_items
         all_items = {k.lower(): Item(d) for k, d in json.load(f).items()}
     trim(all_items)
     all_items['energy'] = Item(energy_data())
 
-    '''
-    Todo:
-    Be able to enforce these constraints:
-    - minimum or maximize end production
-    - maximum or minimize:
-        - electric power capacity
-        - mining/pumping capacity
-        - surplus, particularly for petrochemicals
-        - pollution 
-    '''
 
+def get_recipes() -> (Iterable[Recipe], Set[str]):
     recipes = []
     resources = set()
     for item in all_items.values():
@@ -457,7 +449,51 @@ def main():
         for recipe in item_recipes:
             resources.update(recipe.rates.keys())
 
-    return recipes
+    return recipes, resources
+
+
+def field_size(names: Iterable) -> int:
+    return max(len(str(o)) for o in names)
+
+
+def write_recipes(recipes: Sequence[Recipe], resources: Set[str], fn: str):
+    # Recipes going down, resources going right
+
+    resources = sorted(resources)
+    recipes = sorted(recipes, key=lambda i: i.title)
+    rec_width = field_size(recipes)
+    float_width = 16
+
+    with open(fn, 'w') as f:
+        f.write(' '*(rec_width+3))
+        col_format = f'{{:>{float_width+6}}}",'
+        for res in resources:
+            f.write(col_format.format('"' + res))
+
+        rec_format = '\n{:>' + str(rec_width+1) + '}",'
+        for rec in recipes:
+            f.write(rec_format.format('"' + rec.title))
+            for res in resources:
+                x = rec.rates.get(res, 0)
+                col_format = f'{{:>+{len(res) + 2}.{float_width}e}},'
+                f.write(col_format.format(x))
+
+
+def main():
+    """
+    Todo:
+    Be able to enforce these constraints:
+    - minimum or maximize end production
+    - maximum or minimize:
+        - electric power capacity
+        - mining/pumping capacity
+        - surplus, particularly for petrochemicals
+        - pollution
+    """
+
+    load('recipes.json.xz')
+    recipes, resources = get_recipes()
+    write_recipes(recipes, resources, 'recipes.csv')
 
 
 if __name__ == '__main__':
