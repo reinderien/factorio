@@ -2,8 +2,7 @@
 
 import json, lzma, re
 from collections import defaultdict
-from math import ceil
-from typing import Dict, Iterable, Set, Sequence
+from typing import Dict, Iterable, Set
 
 
 power_re = re.compile(r'([0-9.]+) .*([kMG])(W|J)')
@@ -440,12 +439,12 @@ def load(fn: str):
     all_items['energy'] = Item(energy_data())
 
 
-def get_recipes() -> (Iterable[Recipe], Set[str]):
-    recipes = []
+def get_recipes() -> (Dict[str, Recipe], Set[str]):
+    recipes = {}
     resources = set()
     for item in all_items.values():
         item_recipes = tuple(item.get_recipes())
-        recipes.extend(item_recipes)
+        recipes.update({i.title: i for i in item_recipes})
         for recipe in item_recipes:
             resources.update(recipe.rates.keys())
 
@@ -456,11 +455,11 @@ def field_size(names: Iterable) -> int:
     return max(len(str(o)) for o in names)
 
 
-def write_recipes(recipes: Sequence[Recipe], resources: Set[str], fn: str):
+def write_recipes(recipes: Dict[str, Recipe], resources: Set[str], fn: str):
     # Recipes going down, resources going right
 
     resources = sorted(resources)
-    recipes = sorted(recipes, key=lambda i: i.title)
+    recipes = sorted(recipes.values(), key=lambda i: i.title)
     rec_width = field_size(recipes)
     float_width = 16
 
