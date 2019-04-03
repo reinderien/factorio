@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import json, re
+import json, lzma, re
 from os.path import getsize
 from requests import Session
 from sys import stdout
@@ -256,7 +256,7 @@ def inter_needed(items):
 
 
 def save(fn, recipes):
-    with open(fn, 'w') as f:
+    with lzma.open(fn, 'wt') as f:
         json.dump(recipes, f, indent=4)
 
 
@@ -288,7 +288,7 @@ def main():
             print(f'\nWarning: {table_page["title"]} failed to parse - {e}')
     print(f'\n{used} intermediate tables used.')
 
-    fn = 'recipes.json'
+    fn = 'recipes.json.xz'
     print(f'Saving to {fn}... ', end='')
     save(fn, items_by_name)
     print(f'{getsize(fn)//1024} kiB')
