@@ -47,13 +47,14 @@ To look at the resulting (large) JSON file, use `xzless`.
     
 ## Preprocessing
 
-The data from the wiki are a colourful mix of inaccurate, incomplete, and in a
-format not conducive to analysis. The preprocessing step attempts to fix that:
+The data from the wiki are a colourful mix of inaccurate, incomplete,
+inconsistently presented, and in a format not conducive to analysis. The
+preprocessing step attempts to fix that:
 
     ./preprocess.py
     
-To look at the resulting (huge: >5MiB) CSV, use `xzless -S`, that argument being
-crucial to disable line wrapping.
+To look at the resulting (>5MiB) CSV, use `xzless -S`, unwrapped lines being
+crucial here.
 
 ## Analysis
 
