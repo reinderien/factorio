@@ -54,7 +54,9 @@ preprocessing step attempts to fix that:
     ./preprocess.py
     
 To look at the resulting (>5MiB) CSV, use `xzless -S`, unwrapped lines being
-crucial here.
+crucial here. As you'll notice, the data are extremely sparse, but let's not
+overcomplicate things by switching to a sparse format when `xz` already has a
+0.3% (!) compression ratio.
 
 ## Analysis
 
