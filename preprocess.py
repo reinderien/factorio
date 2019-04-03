@@ -7,7 +7,7 @@ from sys import stdout
 from typing import Dict, Iterable, Set
 
 
-power_re = re.compile(r'([0-9.]+) .*([kMG])(W|J)')
+power_re = re.compile(r'([0-9.]+) .*([kMG])[WJ]')
 
 si_facs = {
     c: 10**(3*i) for i, c in enumerate(('', 'k', 'M', 'G'))
@@ -17,11 +17,27 @@ si_facs = {
 class Item:
     def __init__(self, data: dict):
         self.data = data
-        self.title, self.archived, self.producers, self.prototype_type, \
-            self.crafting_speed, self.pollution, self.energy, self.recipe, \
-            self.mining_hardness, self.mining_time, self.cost, \
-            self.cost_multiplier, self.recipes, self.valid_fuel, \
-            self.fuel_value, self.mining_power, self.mining_speed = (None,)*17
+        (
+            self.archived,
+            self.cost,
+            self.cost_multiplier,
+            self.crafting_speed,
+            self.energy,
+            self.fluid_consumption,
+            self.fuel_value,
+            self.mining_hardness,
+            self.mining_power,
+            self.mining_speed,
+            self.mining_time,
+            self.pollution,
+            self.power_output,
+            self.producers,
+            self.prototype_type,
+            self.recipe,
+            self.recipes,
+            self.title,
+            self.valid_fuel
+        ) = (None,)*19
         self.__dict__.update({k.replace('-', '_'): v
                               for k, v in data.items()})
         self.fill_gaps()
