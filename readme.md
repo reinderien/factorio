@@ -2,10 +2,11 @@
 
 ## Intro
 
-Factorio ([homepage](factorio.com),
-[Steam](https://store.steampowered.com/app/427520)) is a fantastic top-down
-open-world RTS/factory game with an emphasis on automation and technical depth.
-There's no game I can't ruin by applying math! 
+Factorio
+([homepage](https://factorio.com),
+[Steam](https://store.steampowered.com/app/427520))
+is a fantastic top-down open-world RTS/factory game with an emphasis on 
+automation and technical depth. There's no game I can't ruin by applying math! 
 
 The purpose of this project is to get some analytical data about the game's
 economics, and probably do some constrained linear programming optimization to
@@ -13,17 +14,20 @@ try out some "computed economies" at scale.
 
 ## Requirements
 
-- [Python 3](python.org)
-- [requests](python-requests.org)
-- [R](r-project.org)
+- [Python 3](https://python.org)
+- [requests](https://python-requests.org)
+- [R](https://r-project.org)
 
 ## Database pull
 
 The scripts don't interact with the game itself. Instead, they pull and scrape
-data from [the wiki](wiki.factorio.com), an instance of
-[MediaWiki](mediawiki.org). As luck would have it, MediaWiki has a pretty good
-[REST API](https://www.mediawiki.org/wiki/API:Main_page), and the API endpoint
-for the Factorio wiki is open. This means that we can:
+data from 
+[the wiki](https://wiki.factorio.com), 
+an instance of
+[MediaWiki](https://mediawiki.org). 
+As luck would have it, MediaWiki has a pretty good
+[REST API](https://www.mediawiki.org/wiki/API:Main_page),
+and the API endpoint for the Factorio wiki is open. This means that we can:
 
 - Pull structured infobox content for each item in the game, yielding data like
   production recipes, power consumption, etc. This is done by pulling content
