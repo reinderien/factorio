@@ -129,11 +129,14 @@ class Recipe:
         return self.title
 
     def multiply_producer(self, prod: Item):
-        if prod.title in {'Nuclear reactor', 'Boiler', 'Heat exchanger'}:
-            return  # no crafting rate modifier
-        rate = float(prod.crafting_speed)
-        for k in self.rates:
-            self.rates[k] *= rate
+        if prod.title in {'Boiler', 'Heat exchanger'}:
+            pass  # no crafting rate modifier
+        elif prod.title == 'Nuclear reactor':
+            self.rates['Heat'] = parse_power(prod.energy)
+        else:
+            rate = float(prod.crafting_speed)
+            for k in self.rates:
+                self.rates[k] *= rate
 
 
 class MiningRecipe(Recipe):
@@ -199,6 +202,9 @@ class RecipeFactory:
                     raise NotImplementedError()
             if needs_producers:
                 self.producers = tuple(parse_producers(resource.producers))
+
+    def __str__(self) -> str:
+        return self.title
 
     def intermediate(self, rates) -> (Iterable[Item], str, dict):
         building = rates.get('building')
