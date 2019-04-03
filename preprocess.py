@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import json, re
+import json, lzma, re
 from collections import defaultdict
 from typing import Dict, Iterable
 
@@ -320,7 +320,7 @@ def trim(items: dict):
 
 
 def main():
-    with open('recipes.json') as f:
+    with lzma.open('recipes.json.xz') as f:
         global all_items
         all_items = {k.lower(): Item(d) for k, d in json.load(f).items()}
     trim(all_items)
