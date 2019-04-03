@@ -22,6 +22,9 @@ class Item:
             self.fuel_value, self.mining_power, self.mining_speed = (None,)*17
         self.__dict__.update({k.replace('-', '_'): v
                               for k, v in data.items()})
+        self.fill_gaps()
+        
+    def fill_gaps(self):
         if self.prototype_type == 'technology':
             self.producers = 'Lab'
         elif self.title in ('Flamethrower turret', 'Gun turret',
@@ -30,6 +33,32 @@ class Item:
         elif self.title == 'Space science pack':
             self.recipe = 'Time, 41.25 + Rocket part, 100 = ' \
                           'Space science pack, 1000'
+        elif self.title == 'Steam':
+            ex_rate = 10e6 * 60 / 5.82e6
+            self.recipes = (
+                {
+                    'process': 'Steam (Boiler)',
+                    'building': 'Boiler',
+                    'inputs': {
+                        'Water': 60,
+                        'Time': 1
+                    },
+                    'outputs': {
+                        'Steam165': 60
+                    }
+                },
+                {
+                    'process': 'Steam (Heat exchanger)',
+                    'building': 'Heat exchanger',
+                    'inputs': {
+                        'Water': ex_rate,
+                        'Time': 1
+                    },
+                    'outputs': {
+                        'Steam500': ex_rate
+                    }
+                }
+            )
 
     def __str__(self) -> str:
         return self.title
@@ -100,7 +129,7 @@ class Recipe:
         return self.title
 
     def multiply_producer(self, prod: Item):
-        if prod.title == 'Nuclear reactor':
+        if prod.title in {'Nuclear reactor', 'Boiler', 'Heat exchanger'}:
             return  # no crafting rate modifier
         rate = float(prod.crafting_speed)
         for k in self.rates:
@@ -170,10 +199,11 @@ class RecipeFactory:
                 self.producers = tuple(parse_producers(resource.producers))
 
     def intermediate(self, rates) -> (Iterable[Item], str, dict):
-        if self.resource.producers:
-            producers = parse_producers(self.resource.producers)
+        building = rates.get('building')
+        if building:
+            producers = (all_items[building.lower()],)
         else:
-            producers = (all_items[rates['building'].lower()],)
+            producers = parse_producers(self.resource.producers)
         title = rates['process']
         sane_rates = self.calc_recipe(rates['inputs'], rates['outputs'])
         return producers, title, sane_rates
@@ -224,6 +254,11 @@ class RecipeFactory:
             if 'electric' in producer.energy:
                 recipe = self.produce(cls, producer, **kwargs)
                 recipe.rates['Energy'] = energy
+                yield recipe
+
+            elif 'heat' in producer.energy:
+                recipe = self.produce(cls, producer, **kwargs)
+                recipe.rates['Heat'] = energy
                 yield recipe
 
             elif 'burner' in producer.energy:
@@ -327,8 +362,7 @@ def main():
 
     '''
     Todo:
-    Add power plants
-    Add steam
+    Add power plants, heat
     
     Be able to enforce these constraints:
     - minimum or maximize end production
