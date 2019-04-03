@@ -496,17 +496,6 @@ def write_recipes(recipes: Dict[str, Recipe], resources: Set[str], fn: str):
 
 
 def main():
-    """
-    Todo:
-    Be able to enforce these constraints:
-    - minimum or maximize end production
-    - maximum or minimize:
-        - electric power capacity
-        - mining/pumping capacity
-        - surplus, particularly for petrochemicals
-        - pollution
-    """
-
     fn = 'recipes.json.xz'
     print(f'Loading {fn}... ', end='')
     load(fn)
