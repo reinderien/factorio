@@ -3,6 +3,7 @@
 import json, lzma, re
 from collections import defaultdict
 from os.path import getsize
+from sys import stdout
 from typing import Dict, Iterable, Set
 
 
@@ -408,7 +409,7 @@ def energy_data() -> dict:
             },
             {
                 'building': 'Steam turbine',
-                'process': 'Energy (Steam turbine, 165C)',
+                'process': 'Energy (Steam turbine @ 165C)',
                 'inputs': {
                     'Time': 1,
                     'Steam165': turbine_rate
@@ -419,7 +420,7 @@ def energy_data() -> dict:
             },
             {
                 'building': 'Steam turbine',
-                'process': 'Energy (Steam turbine, 500C)',
+                'process': 'Energy (Steam turbine @ 500C)',
                 'inputs': {
                     'Time': 1,
                     'Steam500': turbine_rate
@@ -461,20 +462,20 @@ def write_recipes(recipes: Dict[str, Recipe], resources: Set[str], fn: str):
     resources = sorted(resources)
     recipes = sorted(recipes.values(), key=lambda i: i.title)
     rec_width = field_size(recipes)
-    float_width = 16
+    float_width = 15
+    col_format = f'{{:{float_width+8}}}'
+    rec_format = '\n{:' + str(rec_width+1) + '}'
 
     with lzma.open(fn, 'wt') as f:
-        f.write(' '*(rec_width+3))
-        col_format = f'{{:>{float_width+6}}}",'
+        f.write(' '*(rec_width+1))
         for res in resources:
-            f.write(col_format.format('"' + res))
+            f.write(col_format.format(f'{res},'))
 
-        rec_format = '\n{:>' + str(rec_width+1) + '}",'
         for rec in recipes:
-            f.write(rec_format.format('"' + rec.title))
+            f.write(rec_format.format(f'{rec},'))
             for res in resources:
                 x = rec.rates.get(res, 0)
-                col_format = f'{{:>+{len(res) + 2}.{float_width}e}},'
+                col_format = f'{{:+{len(res)}.{float_width}e}},'
                 f.write(col_format.format(x))
 
 
@@ -503,6 +504,7 @@ def main():
 
     fn = 'recipes.csv.xz'
     print(f'Saving to {fn}... ', end='')
+    stdout.flush()
     write_recipes(recipes, resources, fn)
     print(f'{getsize(fn)//1024} kiB')
 
