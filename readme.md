@@ -16,7 +16,8 @@ try out some "computed economies" at scale.
 
 - [Python 3](https://python.org)
 - [requests](https://python-requests.org)
-- [R](https://r-project.org)
+- [scipy](https://scipy.org)
+- [R](https://r-project.org) (optional)
 
 ## Database pull
 
@@ -58,10 +59,10 @@ crucial here. As you'll notice, the data are extremely sparse, but let's not
 overcomplicate things by switching to a sparse format when `xz` already has a
 0.3% (!) compression ratio.
 
+The CSV is for consumption by R. In addition, a NumPy zipped matrix (.npz) and
+metadata JSON file are created, for consumption by `analyse.py`.
+
 ## Analysis
 
-Run
-
-    ./analyse.r
-    
-This is a WIP.
+`analyse.r` is a stub; you can hack on it if you want to manipulate the recipe
+matrix. Currently, though, I'm moving toward using `analyse.py` and SciPy.
