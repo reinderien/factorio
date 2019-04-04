@@ -23,6 +23,7 @@ class Item:
             self.cost,
             self.cost_multiplier,
             self.crafting_speed,
+            self.dimensions,
             self.energy,
             self.fluid_consumption,
             self.fuel_value,
@@ -38,7 +39,7 @@ class Item:
             self.recipes,
             self.title,
             self.valid_fuel
-        ) = (None,)*19
+        ) = (None,)*20
         self.__dict__.update({k.replace('-', '_'): v
                               for k, v in data.items()})
         self.fill_gaps()
@@ -120,6 +121,8 @@ class ManualMiner:
     def __init__(self, tool: Item):
         self.tool = tool
         self.title = f'Manual with {tool}'
+        self.pollution = 0
+        self.dimensions = '0×0'
 
     def __str__(self) -> str:
         return self.title
@@ -175,9 +178,9 @@ class MiningRecipe(Recipe):
 
 class TechRecipe(Recipe):
     def __init__(self, resource: str, producer: Item, rates: dict,
-                 cost_multiplier: float):
+                 cost_multiplier: float, title: str = ''):
         self.cost_multiplier = cost_multiplier
-        super().__init__(resource, producer, rates)
+        super().__init__(resource, producer, rates, title)
 
     def multiply_producer(self, lab: Item):
         self.rates[self.resource] /= self.cost_multiplier
@@ -270,9 +273,14 @@ class RecipeFactory:
         return self.calc_recipe(self.parse_side(inputs), outputs)
 
     def produce(self, cls, producer, **kwargs):
+        kwargs.setdefault('title', self.title)
         recipe = cls(self.resource.title, producer, self.rates, **kwargs)
         if producer.pollution:
             recipe.rates['Pollution'] = float(producer.pollution)
+
+        dims = tuple(float(x) for x in producer.dimensions.split('×'))
+        recipe.rates['Area'] = dims[0] * dims[1]
+
         return recipe
 
     def for_energy(self, cls, **kwargs) -> Iterable[Recipe]:
@@ -316,22 +324,22 @@ class RecipeFactory:
         for m in self.tree_re.finditer(self.resource.mining_time):
             mining_time, source = int(m[1]), m[2]
             for miner in miners:
-                yield MiningRecipe(self.resource.title, miner, {},
-                                   float(self.resource.mining_hardness),
-                                   mining_time,
-                                   title=f'{self.resource} '
-                                   f'({miner} from {source})')
+                yield self.produce(
+                    MiningRecipe, miner,
+                    mining_hardness=float(self.resource.mining_hardness),
+                    mining_time=mining_time,
+                    title=f'{self.resource} ({miner} from {source})')
 
     def make(self) -> Iterable[Recipe]:
         if self.rates:
             if self.resource.prototype_type == 'technology':
-                yield TechRecipe(self.resource.title, self.producers[0],
-                                 self.rates,
-                                 float(self.resource.cost_multiplier))
+                yield self.produce(
+                    TechRecipe, self.producers[0],
+                    cost_multiplier=float(self.resource.cost_multiplier))
             elif self.resource.title == 'Energy':
-                yield self.produce(Recipe, self.producers[0], title=self.title)
+                yield self.produce(Recipe, self.producers[0])
             else:
-                yield from self.for_energy(Recipe, title=self.title)
+                yield from self.for_energy(Recipe)
         elif self.resource.title == 'Raw wood':
             yield from self.wood_mining()
         elif self.resource.mining_time:
