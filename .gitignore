@@ -1,3 +1,5 @@
 .idea/
-recipes.json*
-recipes.csv*
+*.json
+*.csv
+*.npz
+*.xz

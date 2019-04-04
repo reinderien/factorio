@@ -3,8 +3,9 @@
 import json, lzma, re
 from collections import defaultdict
 from os.path import getsize
+from scipy.sparse import lil_matrix, save_npz
 from sys import stdout
-from typing import Dict, Iterable, Set
+from typing import Dict, Iterable, Set, Sequence
 
 
 power_re = re.compile(r'([0-9.]+) .*([kMG])[WJ]')
@@ -147,8 +148,8 @@ class Recipe:
         return self.title
 
     def multiply_producer(self, prod: Item):
-        if prod.title in {'Boiler', 'Heat exchanger', 'Solar panel', 'Steam engine',
-                          'Steam turbine'}:
+        if prod.title in {'Boiler', 'Heat exchanger', 'Solar panel',
+                          'Steam engine', 'Steam turbine'}:
             pass  # no crafting rate modifier
         elif prod.title == 'Nuclear reactor':
             self.rates['Heat'] = parse_power(prod.energy)
@@ -472,11 +473,10 @@ def field_size(names: Iterable) -> int:
     return max(len(str(o)) for o in names)
 
 
-def write_recipes(recipes: Dict[str, Recipe], resources: Set[str], fn: str):
+def write_csv_for_r(recipes: Sequence[Recipe], resources: Sequence[str],
+                    fn: str):
     # Recipes going down, resources going right
 
-    resources = sorted(resources)
-    recipes = sorted(recipes.values(), key=lambda i: i.title)
     rec_width = field_size(recipes)
     float_width = 15
     col_format = f'{{:{float_width+8}}}'
@@ -495,8 +495,32 @@ def write_recipes(recipes: Dict[str, Recipe], resources: Set[str], fn: str):
                 f.write(col_format.format(x))
 
 
+def write_for_numpy(recipes: Sequence[Recipe], resources: Sequence[str],
+                    prefix: str) -> (str, str):
+    meta_fn, npz_fn = f'{prefix}-meta.json.xz', f'{prefix}.npz'
+
+    with lzma.open(meta_fn, 'wt') as f:
+        json.dump({
+            'recipes': [r.title for r in recipes],
+            'resources': resources
+        }, f, indent=4)
+
+    rec_mat = lil_matrix((len(recipes), len(resources)))
+    for i, rec in enumerate(recipes):
+        for res, q in rec.rates.items():
+            j = resources.index(res)
+            rec_mat[i, j] = q
+    save_npz(npz_fn, rec_mat.tocsr())
+
+    return meta_fn, npz_fn
+
+
+def file_banner(fn):
+    print(f'{fn} {getsize(fn)//1024} kiB')
+
+
 def main():
-    fn = 'recipes.json.xz'
+    fn = 'items.json.xz'
     print(f'Loading {fn}... ', end='')
     load(fn)
     print(f'{len(all_items)} items')
@@ -507,11 +531,19 @@ def main():
     recipes, resources = get_recipes()
     print(f'{len(recipes)} recipes, {len(resources)} resources')
 
+    resources = sorted(resources)
+    recipes = sorted(recipes.values(), key=lambda i: i.title)
+
+    print('Saving files for numpy...')
+    meta_fn, npz_fn = write_for_numpy(recipes, resources, 'recipes')
+    file_banner(meta_fn)
+    file_banner(npz_fn)
+
     fn = 'recipes.csv.xz'
-    print(f'Saving to {fn}... ', end='')
+    print(f'Saving recipes for use by R...')
     stdout.flush()
-    write_recipes(recipes, resources, fn)
-    print(f'{getsize(fn)//1024} kiB')
+    write_csv_for_r(recipes, resources, fn)
+    file_banner(fn)
 
 
 if __name__ == '__main__':

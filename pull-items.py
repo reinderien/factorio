@@ -288,7 +288,7 @@ def main():
             print(f'\nWarning: {table_page["title"]} failed to parse - {e}')
     print(f'\n{used} intermediate tables used.')
 
-    fn = 'recipes.json.xz'
+    fn = 'items.json.xz'
     print(f'Saving to {fn}... ', end='')
     save(fn, items_by_name)
     print(f'{getsize(fn)//1024} kiB')
