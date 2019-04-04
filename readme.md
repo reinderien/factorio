@@ -90,3 +90,17 @@ Variables:
 - `b_eq` is a q*1 column vector of equality constraints.
 - `bounds` is either one (min, max) tuple applying to all variables in `x`, or a
   sequence of `n` (min, max) variables for each variable in `x`.
+
+In our case:
+
+- `n` is equal to 681, the number of recipes
+- Each entry in `x` is a floating-point number representing the (potentially
+  partial-use) quantity of that recipe in use; i.e. "five assembler machine 3
+  producing copper coil"
+- The `min` portion of `bounds` must be zero; i.e., we cannot have a negative
+  number of recipes
+- `c` must be calculated based on the requested objective function. This can be
+  influenced by pollution, area, etc.
+- `A_ub` must take into account the total number of whole or partial manual 
+  tasks summing to 1. It must also take into account the fact that no resource
+  rate can go below 0 for a sustainable process.
