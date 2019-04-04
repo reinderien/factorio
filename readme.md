@@ -66,3 +66,27 @@ metadata JSON file are created, for consumption by `analyse.py`.
 
 `analyse.r` is a stub; you can hack on it if you want to manipulate the recipe
 matrix. Currently, though, I'm moving toward using `analyse.py` and SciPy.
+
+SciPy has
+[a lot of options](https://docs.scipy.org/doc/scipy/reference/optimize.html)
+for numerical optimization. We're interested in linear programming via
+[linprog](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.linprog.html)
+:
+
+- Minimize c * x
+- Subject to
+    - A_ub * x <= b_ub
+    - A_eq * x == b_eq
+    - lb <= x <= ub
+
+Variables:
+
+- `c` is a 1*n row vector of coefficients of the linear objective function.
+- `x` is an n*1 column vector of linear objective function variables to be 
+  minimized. 
+- `A_ub` is an p*n matrix of upper bound constraints.
+- `b_ub` is an p*1 column vector of upper bound constraints.
+- `A_eq` is a q*n matrix of equality constraints.
+- `b_eq` is a q*1 column vector of equality constraints.
+- `bounds` is either one (min, max) tuple applying to all variables in `x`, or a
+  sequence of `n` (min, max) variables for each variable in `x`.
