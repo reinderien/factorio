@@ -2,6 +2,7 @@
 
 import json, lzma
 import numpy as np
+from math import ceil, log10
 from scipy.optimize import linprog, OptimizeResult
 from scipy.sparse import csr_matrix, load_npz
 from sys import stdout
@@ -94,23 +95,33 @@ class Model:
                               # A_eq=self.A_eq, b_eq=self.b_eq
                               )
 
+    @staticmethod
+    def diminishing_table(f: TextIO, title: str, x: Iterable[float], names: Iterable[str],
+                          digs: int):
+        f.write(title)
+        f.write('\n')
+        f.write('-'*len(title))
+        f.write('\n\n')
+
+        rows = sorted((
+            (q, n)
+            for q, n in zip(x, names)
+            if q >= 10 ** -digs
+        ), reverse=True)
+
+        q_width = int(ceil(log10(max(q for q, n in rows)))) + 1 + digs
+        fmt = f'{{:>{q_width}.{digs}f}} {{:}}\n'
+
+        for q, name in rows:
+            f.write(fmt.format(q, name))
+        f.write('\n')
+
     def print(self, f: TextIO):
         f.write(self.result.message)
-        f.write('\n\n'
-                'Recipe counts\n'
-                '-------------\n')
-
-        digs = 2
-        recs = sorted((
-                        (q, r)
-                        for q, r in zip(self.result.x, self.rec_names)
-                        if q >= 10**-digs
-                      ), reverse=True)
-        width = max(len(r) for q, r in recs)
-        fmt = f'{{:>{width}}} {{:6.{digs}f}}\n'
-
-        for q, rec in recs:
-            f.write(fmt.format(rec, q))
+        f.write('\n\n')
+        self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 2)
+        self.diminishing_table(f, 'Resource rates', self.recipes * self.result.x,
+                               self.res_names, 2)
 
 
 def load_meta(fn) -> (Sequence[str], Sequence[str]):
