@@ -36,9 +36,17 @@ class Model:
         self.expenses[0, self._res_idx(res_name)] = score
 
     def min_resource(self, res_name: str, rate: float):
-        pass
+        # in-place based on existing negative recipe init
+        self.b_ub[self._res_idx(res_name)] = -rate
 
     def max_resource(self, res_name: str, rate: float):
+        # append, vstack, or concatenate?
+        pass
+
+    def min_recipe(self, rec_name: str, rate: float):
+        pass
+
+    def max_recipe(self, rec_name: str, rate: float):
         pass
 
     def run(self):
