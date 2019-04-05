@@ -84,8 +84,8 @@ Variables:
 - `c` is a 1*n row vector of coefficients of the linear objective function.
 - `x` is an n*1 column vector of linear objective function variables to be 
   minimized. 
-- `A_ub` is an p*n matrix of upper bound constraints.
-- `b_ub` is an p*1 column vector of upper bound constraints.
+- `A_ub` is a p*n matrix of upper bound constraints.
+- `b_ub` is a p*1 column vector of upper bound constraints.
 - `A_eq` is a q*n matrix of equality constraints.
 - `b_eq` is a q*1 column vector of equality constraints.
 - `bounds` is either one (min, max) tuple applying to all variables in `x`, or a
@@ -104,3 +104,7 @@ In our case:
 - `A_ub` must take into account the total number of whole or partial manual 
   tasks summing to 1. It must also take into account the fact that no resource
   rate can go below 0 for a sustainable process.
+  
+To calculate `c`, the objective function coefficient 1*n row vector, multiply an
+expense r*1 column vector by the recipe r*n matrix, `r` being the number of
+resources. The expense vector has one entry per resource.
