@@ -28,13 +28,22 @@ class Model:
         # self.A_eq = np.empty((0, self.n_recipes))
         # self.b_eq = np.empty((0, 1))
 
-        self.res: OptimizeResult = None
+        self.result: OptimizeResult = None
 
     def _res_idx(self, res_name: str) -> int:
         return self.res_names.index(res_name)
 
     def _rec_idx(self, rec_name: str) -> int:
         return self.rec_names.index(rec_name)
+
+    def _manual_idx(self) -> Iterable[int]:
+        for i, rec in enumerate(self.rec_names):
+            if 'manual' in rec.lower():
+                yield i
+
+    def _add_ub(self, row: np.ndarray, b: float):
+        self.A_ub = np.concatenate((self.A_ub, row))
+        self.b_ub = np.concatenate((self.b_ub, ((b,),)))
 
     def resource_expense(self, res_name: str, ex: float):
         self.res_expenses[0, self._res_idx(res_name)] = ex
@@ -47,18 +56,19 @@ class Model:
         self.b_ub[self._res_idx(res_name)] = -rate
 
     def max_resource(self, res_name: str, rate: float):
-        raise NotImplementedError()
+        i = self._res_idx(res_name)
+        row = self.recipes[i, :].toarray()
+        self._add_ub(row, rate)
 
     def min_recipe(self, rec_name: str, rate: float):
-        raise NotImplementedError()
+        row = np.zeros((1, self.n_recipes))
+        row[0, self._rec_idx(rec_name)] = -1
+        self._add_ub(row, -rate)
 
     def max_recipe(self, rec_name: str, rate: float):
-        raise NotImplementedError()
-
-    def _manual_idx(self) -> Iterable[int]:
-        for i, rec in enumerate(self.rec_names):
-            if 'manual' in rec.lower():
-                yield i
+        row = np.zeros((1, self.n_recipes))
+        row[0, self._rec_idx(rec_name)] = 1
+        self._add_ub(row, rate)
 
     def player_laziness(self, l: float):
         for i in self._manual_idx():
@@ -68,8 +78,7 @@ class Model:
         manual_row = np.zeros((1, self.n_recipes))
         for i in self._manual_idx():
             manual_row[0, i] = 1
-        self.A_ub = np.concatenate((self.A_ub, manual_row))
-        self.b_ub = np.concatenate((self.b_ub, ((players,),)))
+        self._add_ub(manual_row, players)
 
     def run(self):
         print('Optimizing...')
@@ -80,21 +89,24 @@ class Model:
         # ...but the following seems to work anyway
         c = self.res_expenses * self.recipes + self.rec_expenses
 
-        self.res = linprog(c=c, method='interior-point',
-                           A_ub=self.A_ub, b_ub=self.b_ub,
-                           # A_eq=self.A_eq, b_eq=self.b_eq
-                           )
+        self.result = linprog(c=c, method='interior-point',
+                              A_ub=self.A_ub, b_ub=self.b_ub,
+                              # A_eq=self.A_eq, b_eq=self.b_eq
+                              )
 
     def print(self, f: TextIO):
-        f.write(self.res.message)
+        f.write(self.result.message)
         f.write('\n\n'
                 'Recipe counts\n'
                 '-------------\n')
         width = max(len(r) for r in self.rec_names)
-        fmt = f'{{:>{width}}} {{:.2f}}\n'
-        for res, q in zip(self.rec_names, self.res.x):
-            if q > 1e-6:
-                f.write(fmt.format(res, q))
+        fmt = f'{{:>{width}}} {{:6.1f}}\n'
+
+        recs = sorted(zip(self.result.x, self.rec_names), reverse=True)
+        for q, rec in recs:
+            if q < 1e-2:
+                break
+            f.write(fmt.format(rec, q))
 
 
 def load_meta(fn) -> (Sequence[str], Sequence[str]):
@@ -117,10 +129,24 @@ def load_matrix(fn) -> csr_matrix:
 def main():
     model = Model(load_matrix('recipes.npz'),
                   *load_meta('recipes-meta.json.xz'))
+
+    # There's only one player, and he doesn't want to do a lot of manual labour unless really
+    # necessary
     model.max_players(1)
-    model.player_laziness(1)
+    model.player_laziness(100)
+
+    # These are the things we want to minimize
     model.resource_expense('Pollution', 1)
     model.resource_expense('Area', 1)
+
+    # Also minimize net excess on things that will block up the production line
+    model.resource_expense('Petroleum gas', 1)
+    model.resource_expense('Light oil', 1)
+    model.resource_expense('Heavy oil', 1)
+
+    # This is our desired output
+    model.min_recipe('Space science pack (Rocket silo)', 1)
+
     model.run()
     model.print(stdout)
 
