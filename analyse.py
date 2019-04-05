@@ -99,13 +99,17 @@ class Model:
         f.write('\n\n'
                 'Recipe counts\n'
                 '-------------\n')
-        width = max(len(r) for r in self.rec_names)
-        fmt = f'{{:>{width}}} {{:6.1f}}\n'
 
-        recs = sorted(zip(self.result.x, self.rec_names), reverse=True)
+        digs = 2
+        recs = sorted((
+                        (q, r)
+                        for q, r in zip(self.result.x, self.rec_names)
+                        if q >= 10**-digs
+                      ), reverse=True)
+        width = max(len(r) for q, r in recs)
+        fmt = f'{{:>{width}}} {{:6.{digs}f}}\n'
+
         for q, rec in recs:
-            if q < 1e-2:
-                break
             f.write(fmt.format(rec, q))
 
 
