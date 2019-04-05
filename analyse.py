@@ -120,7 +120,7 @@ class Model:
         f.write(self.result.message)
         f.write('\n\n')
         self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 2)
-        self.diminishing_table(f, 'Resource rates', self.recipes * self.result.x,
+        self.diminishing_table(f, 'Excess resources', self.recipes * self.result.x,
                                self.res_names, 2)
 
 
