@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json, lzma, re
+import numpy as np
 from collections import defaultdict
 from os.path import getsize
 from scipy.sparse import lil_matrix, save_npz
@@ -504,23 +505,18 @@ def write_csv_for_r(recipes: Sequence[Recipe], resources: Sequence[str],
 
 
 def write_for_numpy(recipes: Sequence[Recipe], resources: Sequence[str],
-                    prefix: str) -> (str, str):
-    meta_fn, npz_fn = f'{prefix}-meta.json.xz', f'{prefix}.npz'
+                    meta_fn: str, npz_fn: str):
+    recipe_names = np.array([r.title for r in recipes],
+                            dtype=object, copy=False)
+    resource_names = np.array(resources, dtype=object, copy=False)
+    np.savez_compressed(meta_fn, recipe_names=recipe_names, resource_names=resource_names)
 
-    with lzma.open(meta_fn, 'wt') as f:
-        json.dump({
-            'recipes': [r.title for r in recipes],
-            'resources': resources
-        }, f, indent=4)
-
-    rec_mat = lil_matrix((len(recipes), len(resources)))
-    for i, rec in enumerate(recipes):
+    rec_mat = lil_matrix((len(resources), len(recipes)))
+    for j, rec in enumerate(recipes):
         for res, q in rec.rates.items():
-            j = resources.index(res)
+            i = resources.index(res)
             rec_mat[i, j] = q
     save_npz(npz_fn, rec_mat.tocsr())
-
-    return meta_fn, npz_fn
 
 
 def file_banner(fn):
@@ -543,7 +539,8 @@ def main():
     recipes = sorted(recipes.values(), key=lambda i: i.title)
 
     print('Saving files for numpy...')
-    meta_fn, npz_fn = write_for_numpy(recipes, resources, 'recipes')
+    meta_fn, npz_fn = 'recipe-names.npz', 'recipes.npz'
+    write_for_numpy(recipes, resources, meta_fn, npz_fn)
     file_banner(meta_fn)
     file_banner(npz_fn)
 

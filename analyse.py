@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 
-import json, lzma
 import numpy as np
 from math import ceil, log10
 from scipy.optimize import linprog, OptimizeResult
 from scipy.sparse import csr_matrix, load_npz
 from sys import stdout
-from typing import Iterable, Sequence, TextIO
+from typing import Iterable, List, TextIO
 
 
 class Model:
-    def __init__(self, recipes: csr_matrix,
-                 recipe_names: Sequence[str],
-                 resource_names: Sequence[str]):
-        self.recipes = recipes.transpose()
+    def __init__(self, recipes: csr_matrix, recipe_names: np.ndarray,
+                 resource_names: np.ndarray):
+        self.recipes = recipes.toarray()
         self.rec_names = recipe_names
         self.res_names = resource_names
         self.n_recipes = len(recipe_names)
@@ -21,79 +19,72 @@ class Model:
         self.res_expenses: np.ndarray = np.zeros((1, self.n_resources))
         self.rec_expenses: np.ndarray = np.zeros((1, self.n_recipes))
 
-        # No resource rate can go below 0, i.e.
-        # No negated resource rate can go above 0
-        self.A_ub: np.ndarray = (-self.recipes).toarray()
-        self.b_ub: np.ndarray = np.zeros((self.n_resources, 1))
+        self.A_ub: np.ndarray = np.empty((0, self.n_recipes))
+        self.b_ub: np.ndarray = np.empty((0, 1))
 
-        # self.A_eq = np.empty((0, self.n_recipes))
-        # self.b_eq = np.empty((0, 1))
+        # self.A_eq: np.ndarray = np.empty((0, self.n_recipes))
+        # self.b_eq: np.ndarray = np.empty((0, 1))
 
         self.result: OptimizeResult = None
 
-    def _res_idx(self, res_name: str) -> int:
-        return self.res_names.index(res_name)
+    def _add_ub(self, a: np.ndarray, b: float):
+        self.A_ub = np.concatenate((self.A_ub, a))
+        new_b = np.full((a.shape[0], 1), b)
+        self.b_ub = np.concatenate((self.b_ub, new_b))
 
-    def _rec_idx(self, rec_name: str) -> int:
-        return self.rec_names.index(rec_name)
+    def _manual_idx(self) -> List[bool]:
+        return ['manual' in r.lower() for r in self.rec_names]
 
-    def _manual_idx(self) -> Iterable[int]:
-        for i, rec in enumerate(self.rec_names):
-            if 'manual' in rec.lower():
-                yield i
+    def these_resources(self, *these: str) -> np.ndarray:
+        return np.isin(self.res_names, these)
 
-    def _add_ub(self, row: np.ndarray, b: float):
-        self.A_ub = np.concatenate((self.A_ub, row))
-        self.b_ub = np.concatenate((self.b_ub, ((b,),)))
+    def resources_but(self, *these: str) -> np.ndarray:
+        return np.logical_not(self.these_resources(these))
 
-    def resource_expense(self, res_name: str, ex: float):
-        self.res_expenses[0, self._res_idx(res_name)] = ex
+    def these_recipes(self, *these: str) -> np.ndarray:
+        return np.isin(self.rec_names, these)
 
-    def recipe_expense(self, rec_name: str, ex: float):
-        self.rec_expenses[0, self._res_idx(rec_name)] = ex
+    def recipes_but(self, *these: str) -> np.ndarray:
+        return np.logical_not(self.these_recipes(these))
 
-    def min_resource(self, res_name: str, rate: float):
-        # in-place based on existing negative recipe init
-        self.b_ub[self._res_idx(res_name)] = -rate
+    def resource_equilibria(self, resources: np.ndarray):
+        to_add = self.recipes[resources, :]
+        self.A_eq = np.concatenate((self.A_eq, to_add))
+        self.b_eq = np.concatenate((self.b_eq, np.zeros((len(to_add), 1))))
 
-    def max_resource(self, res_name: str, rate: float):
-        i = self._res_idx(res_name)
-        row = self.recipes[i, :].toarray()
-        self._add_ub(row, rate)
+    def resource_expense(self, resources: np.ndarray, ex: float):
+        self.res_expenses[0, resources] = ex
 
-    def min_recipe(self, rec_name: str, rate: float):
-        row = np.zeros((1, self.n_recipes))
-        row[0, self._rec_idx(rec_name)] = -1
-        self._add_ub(row, -rate)
+    def recipe_expense(self, recipes: np.ndarray, ex: float):
+        self.rec_expenses[0, recipes] = ex
 
-    def max_recipe(self, rec_name: str, rate: float):
-        row = np.zeros((1, self.n_recipes))
-        row[0, self._rec_idx(rec_name)] = 1
-        self._add_ub(row, rate)
+    def min_resource(self, resources: np.ndarray, rate: float):
+        self._add_ub(-self.recipes[resources, :], -rate)
+
+    def max_resource(self, resources: np.ndarray, rate: float):
+        self._add_ub(self.recipes[resources, :], rate)
+
+    def min_recipe(self, recipes: np.ndarray, rate: float):
+        self._add_ub(np.expand_dims(np.where(recipes, -1, 0), 0), -rate)
+
+    def max_recipe(self, recipes: np.ndarray, rate: float):
+        self._add_ub(np.expand_dims(np.where(recipes, 1, 0), 0), rate)
 
     def player_laziness(self, l: float):
-        for i in self._manual_idx():
-            self.rec_expenses[0, i] += l
+        self.rec_expenses[0, self._manual_idx()] += l
 
     def max_players(self, players: float):
-        manual_row = np.zeros((1, self.n_recipes))
-        for i in self._manual_idx():
-            manual_row[0, i] = 1
-        self._add_ub(manual_row, players)
+        self._add_ub(np.expand_dims(np.where(self._manual_idx(), 1, 0), 0), players)
 
     def run(self):
         print('Optimizing...')
 
-        # "it is strongly discouraged to use NumPy functions directly on
-        # [sparse] matrices"
-        # c = np.matmul(self.expenses, self.recipes.toarray())
-        # ...but the following seems to work anyway
-        c = self.res_expenses * self.recipes + self.rec_expenses
+        c = np.matmul(self.res_expenses, self.recipes) + self.rec_expenses
 
         self.result = linprog(c=c, method='interior-point',
                               A_ub=self.A_ub, b_ub=self.b_ub,
-                              # A_eq=self.A_eq, b_eq=self.b_eq
-                              )
+                              # A_eq=self.A_eq, b_eq=self.b_eq,
+                              options={})
 
     @staticmethod
     def diminishing_table(f: TextIO, title: str, x: Iterable[float], names: Iterable[str],
@@ -120,15 +111,14 @@ class Model:
         f.write(self.result.message)
         f.write('\n\n')
         self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 2)
-        self.diminishing_table(f, 'Excess resources', self.recipes * self.result.x,
+        self.diminishing_table(f, 'Excess resources', np.matmul(self.recipes, self.result.x),
                                self.res_names, 2)
 
 
-def load_meta(fn) -> (Sequence[str], Sequence[str]):
+def load_meta(fn) -> (np.ndarray, np.ndarray):
     print(f'Loading {fn}... ', end='')
-    with lzma.open(fn) as f:
-        meta: dict = json.load(f)
-    recipes, resources = meta['recipes'], meta['resources']
+    with np.load(fn) as meta:
+        recipes, resources = meta['recipe_names'], meta['resource_names']
     print(f'{len(recipes)} recipes, {len(resources)} resources')
     return recipes, resources
 
@@ -143,24 +133,21 @@ def load_matrix(fn) -> csr_matrix:
 
 def main():
     model = Model(load_matrix('recipes.npz'),
-                  *load_meta('recipes-meta.json.xz'))
+                  *load_meta('recipe-names.npz'))
 
     # There's only one player, and he doesn't want to do a lot of manual labour unless really
     # necessary
     model.max_players(1)
     model.player_laziness(100)
 
-    # These are the things we want to minimize
-    model.resource_expense('Pollution', 1)
-    model.resource_expense('Area', 1)
+    # Closed system - no resource rate deficits
+    model.min_resource(model.resources_but(), 0)
 
-    # Also minimize net excess on things that will block up the production line
-    model.resource_expense('Petroleum gas', 1)
-    model.resource_expense('Light oil', 1)
-    model.resource_expense('Heavy oil', 1)
+    # These are the things we want to minimize
+    model.resource_expense(model.these_resources('Pollution', 'Area'), 1)
 
     # This is our desired output
-    model.min_recipe('Space science pack (Rocket silo)', 1)
+    model.min_recipe(model.these_recipes('Space science pack (Rocket silo)'), 1)
 
     model.run()
     model.print(stdout)
