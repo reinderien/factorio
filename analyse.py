@@ -87,12 +87,16 @@ class Model:
                               options={})
 
     @staticmethod
-    def diminishing_table(f: TextIO, title: str, x: Iterable[float], names: Iterable[str],
-                          digs: int):
+    def title(f: TextIO, title: str):
         f.write(title)
         f.write('\n')
         f.write('-'*len(title))
         f.write('\n\n')
+
+    @classmethod
+    def diminishing_table(cls, f: TextIO, title: str, x: Iterable[float], names: Iterable[str],
+                          digs: int):
+        cls.title(f, title)
 
         rows = sorted((
             (q, n)
@@ -111,8 +115,35 @@ class Model:
         f.write(self.result.message)
         f.write('\n\n')
         self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 2)
-        self.diminishing_table(f, 'Excess resources', np.matmul(self.recipes, self.result.x),
-                               self.res_names, 2)
+
+        self.title(f, 'Resources')
+        resources = np.empty(self.n_resources,
+                             dtype=[
+                                 ('rates', 'float64', (3,)),
+                                 ('name', f'U{max(len(r) for r in self.res_names)}'),
+                             ])
+        rates = resources['rates']
+        np.matmul(+self.recipes.clip(min=0), self.result.x, out=rates[:, 0])
+        np.matmul(-self.recipes.clip(max=0), self.result.x, out=rates[:, 1])
+        np.matmul(+self.recipes,             self.result.x, out=rates[:, 2])
+        resources['name'] = self.res_names
+        resources.sort(order='rates')  # todo - broken
+
+        eps = 1e-2
+        to_show = np.any(np.abs(rates) > eps, axis=1)
+
+        width = max(len(n) for n in self.res_names[to_show])
+        titles = ('Produced', 'Consumed', 'Excess')
+        name_fmt = f'{{:{width}}} '
+        fmt = name_fmt + ' '.join(
+                '{:10.3e}' for _ in titles
+              )
+
+        print(name_fmt.format('Resource') + ' '.join(
+            f'{t:>10}' for t in titles
+        ))
+        for row in resources:
+            print(fmt.format(row['name'], *row['rates']))
 
 
 def load_meta(fn) -> (np.ndarray, np.ndarray):
