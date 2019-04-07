@@ -54,6 +54,14 @@ class Model:
         self.A_eq = np.concatenate((self.A_eq, to_add))
         self.b_eq = np.concatenate((self.b_eq, np.zeros((len(to_add), 1))))
 
+    def petro_equilibria(self):
+        gas = self.recipes[self.these_resources('Petroleum gas')][0, :]
+        oils = self.recipes[self.these_resources('Light oil', 'Heavy oil')]
+        oils[0, :] -= gas
+        oils[1, :] -= gas
+        self.A_eq = np.concatenate((self.A_eq, oils))
+        self.b_eq = np.concatenate((self.b_eq, np.zeros((2, 1))))
+
     def resource_expense(self, resources: np.ndarray, ex: float):
         self.res_expenses[0, resources] = ex
 
@@ -87,9 +95,14 @@ class Model:
 
         c = np.matmul(self.res_expenses, self.recipes) + self.rec_expenses
 
+        if self.b_eq.size:
+            A_eq, b_eq = self.A_eq, self.b_eq
+        else:
+            A_eq, b_eq = None, None
+
         self.result = linprog(c=c, method=self.method,
                               A_ub=self.A_ub, b_ub=self.b_ub,
-                              # A_eq=self.A_eq, b_eq=self.b_eq,
+                              A_eq=A_eq, b_eq=b_eq,
                               options={
                                   'tol': 1e-13,
                                   'sparse': True,
@@ -144,7 +157,7 @@ class Model:
         resources['name'] = self.res_names
 
         # Filter by rates above a small margin
-        eps = 0
+        eps = 1e-13
         to_show = np.any(np.abs(rates) > eps, axis=1)
         resources = resources[to_show]
         rates = resources['rates']
@@ -153,20 +166,24 @@ class Model:
         resources = resources[(-rates[:, 0]).argsort()]
         rates = resources['rates']
 
-        # Fractional consumed and excess
-        rates[:, 1] /= rates[:, 0]
-        rates[:, 2] /= rates[:, 0]
-
         width = max(len(n) for n in resources['name'])
         titles = ('Produced', 'Consumed', 'Excess')
         name_fmt = f'{{:>{width}}} '
-        fmt = name_fmt + '{:10.3e} {:10.1%} {:10.1%}'
 
-        print(name_fmt.format('Resource') + ' '.join(
+        f.write(name_fmt.format('Resource') + ' '.join(
             f'{t:>10}' for t in titles
         ))
+        f.write('\n')
         for row in resources:
-            print(fmt.format(row['name'], *row['rates']))
+            f.write(name_fmt.format(row['name']))
+            produced, consumed, excess = row['rates']
+            if produced > eps:
+                f.write(f'{produced:10.3e} '
+                        f'{consumed/produced:10.1%} '
+                        f'{excess/produced:10.1%}\n')
+            else:
+                f.write(f'{0:10} '
+                        f'{consumed:10.3e}\n')
 
 
 def load_meta(fn) -> (np.ndarray, np.ndarray):
@@ -189,13 +206,18 @@ def main():
     model = Model(load_matrix('recipes.npz'),
                   *load_meta('recipe-names.npz'))
 
-    # There's only one player, and he doesn't want to do a lot of manual labour unless really
+    # There's only one player, and he doesn't want to do a lot of manual labour
+    # unless really
     # necessary
     model.max_players(1)
     model.player_laziness(100)
 
     # Closed system - no resource rate deficits
     model.min_resource(model.resources_but(), 0)
+
+    # The excesses of the petrochemical subsystem must equal each other to
+    # prevent backups
+    model.petro_equilibria()
 
     # These are the things we want to minimize
     model.resource_expense(model.these_resources('Pollution', 'Area'), 1)
