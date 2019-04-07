@@ -140,7 +140,7 @@ class Model:
 
         width = max(len(n) for n in resources['name'])
         titles = ('Produced', 'Consumed', 'Excess')
-        name_fmt = f'{{:{width}}} '
+        name_fmt = f'{{:>{width}}} '
         fmt = name_fmt + ' '.join(
                 '{:10.3e}' for _ in titles
               )
