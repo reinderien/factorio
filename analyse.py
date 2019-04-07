@@ -95,6 +95,9 @@ class Model:
                                   'sparse': True,
                                   # 'disp': True  # bugged
                               })
+        # Trim off any non-zero recipes caused by algorithmic error
+        eps = 1e-6
+        self.result.x[self.result.x < eps] = 0
 
     @staticmethod
     def title(f: TextIO, title: str):
@@ -140,21 +143,24 @@ class Model:
         np.matmul(+self.recipes,             self.result.x, out=rates[:, 2])  # Excess
         resources['name'] = self.res_names
 
+        # Filter by rates above a small margin
+        eps = 0
+        to_show = np.any(np.abs(rates) > eps, axis=1)
+        resources = resources[to_show]
+        rates = resources['rates']
+
         # Sort by produced, descending
         resources = resources[(-rates[:, 0]).argsort()]
         rates = resources['rates']
 
-        # Filter by rates above a small margin
-        eps = 1
-        to_show = np.any(np.abs(rates) > eps, axis=1)
-        resources = resources[to_show]
+        # Fractional consumed and excess
+        rates[:, 1] /= rates[:, 0]
+        rates[:, 2] /= rates[:, 0]
 
         width = max(len(n) for n in resources['name'])
         titles = ('Produced', 'Consumed', 'Excess')
         name_fmt = f'{{:>{width}}} '
-        fmt = name_fmt + ' '.join(
-                '{:10.3e}' for _ in titles
-              )
+        fmt = name_fmt + '{:10.3e} {:10.1%} {:10.1%}'
 
         print(name_fmt.format('Resource') + ' '.join(
             f'{t:>10}' for t in titles
