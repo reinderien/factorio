@@ -22,8 +22,8 @@ class Model:
         self.A_ub: np.ndarray = np.empty((0, self.n_recipes))
         self.b_ub: np.ndarray = np.empty((0, 1))
 
-        # self.A_eq: np.ndarray = np.empty((0, self.n_recipes))
-        # self.b_eq: np.ndarray = np.empty((0, 1))
+        self.A_eq: np.ndarray = np.empty((0, self.n_recipes))
+        self.b_eq: np.ndarray = np.empty((0, 1))
 
         self.result: OptimizeResult = None
 
@@ -39,13 +39,13 @@ class Model:
         return np.isin(self.res_names, these)
 
     def resources_but(self, *these: str) -> np.ndarray:
-        return np.logical_not(self.these_resources(these))
+        return np.logical_not(self.these_resources(*these))
 
     def these_recipes(self, *these: str) -> np.ndarray:
         return np.isin(self.rec_names, these)
 
     def recipes_but(self, *these: str) -> np.ndarray:
-        return np.logical_not(self.these_recipes(these))
+        return np.logical_not(self.these_recipes(*these))
 
     def resource_equilibria(self, resources: np.ndarray):
         to_add = self.recipes[resources, :]
