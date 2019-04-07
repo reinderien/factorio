@@ -506,9 +506,13 @@ def write_csv_for_r(recipes: Sequence[Recipe], resources: Sequence[str],
 
 def write_for_numpy(recipes: Sequence[Recipe], resources: Sequence[str],
                     meta_fn: str, npz_fn: str):
-    recipe_names = np.array([r.title for r in recipes],
-                            dtype=object, copy=False)
-    resource_names = np.array(resources, dtype=object, copy=False)
+    rec_names = [r.title for r in recipes]
+    w_rec = max(len(r) for r in rec_names)
+    recipe_names = np.array(rec_names, copy=False, dtype=f'U{w_rec}')
+
+    w_res = max(len(r) for r in resources)
+    resource_names = np.array(resources, copy=False, dtype=f'U{w_res}')
+
     np.savez_compressed(meta_fn, recipe_names=recipe_names, resource_names=resource_names)
 
     rec_mat = lil_matrix((len(resources), len(recipes)))
