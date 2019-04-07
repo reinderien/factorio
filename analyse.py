@@ -2,13 +2,15 @@
 
 import numpy as np
 from math import ceil, log10
-from scipy.optimize import linprog, OptimizeResult
+from scipy.optimize import linprog, OptimizeResult, show_options
 from scipy.sparse import csr_matrix, load_npz
 from sys import stdout
 from typing import Iterable, List, TextIO
 
 
 class Model:
+    method = 'interior-point'
+
     def __init__(self, recipes: csr_matrix, recipe_names: np.ndarray,
                  resource_names: np.ndarray):
         self.recipes = recipes.toarray()
@@ -76,15 +78,23 @@ class Model:
     def max_players(self, players: float):
         self._add_ub(np.expand_dims(np.where(self._manual_idx(), 1, 0), 0), players)
 
+    @classmethod
+    def show_options(cls):
+        show_options(solver='linprog', method=cls.method)
+
     def run(self):
         print('Optimizing...')
 
         c = np.matmul(self.res_expenses, self.recipes) + self.rec_expenses
 
-        self.result = linprog(c=c, method='interior-point',
+        self.result = linprog(c=c, method=self.method,
                               A_ub=self.A_ub, b_ub=self.b_ub,
                               # A_eq=self.A_eq, b_eq=self.b_eq,
-                              options={})
+                              options={
+                                  'tol': 1e-13,
+                                  'sparse': True,
+                                  # 'disp': True  # bugged
+                              })
 
     @staticmethod
     def title(f: TextIO, title: str):
@@ -112,9 +122,10 @@ class Model:
         f.write('\n')
 
     def print(self, f: TextIO):
+        f.write(f'{self.result.nit} iterations\n')
         f.write(self.result.message)
         f.write('\n\n')
-        self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 2)
+        self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 1)
 
         # Initialize rates based on recipe and solution
         self.title(f, 'Resources')
@@ -134,7 +145,7 @@ class Model:
         rates = resources['rates']
 
         # Filter by rates above a small margin
-        eps = 1e-2
+        eps = 1
         to_show = np.any(np.abs(rates) > eps, axis=1)
         resources = resources[to_show]
 
