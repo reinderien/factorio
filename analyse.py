@@ -104,7 +104,7 @@ class Model:
                               A_ub=self.A_ub, b_ub=self.b_ub,
                               A_eq=A_eq, b_eq=b_eq,
                               options={
-                                  'tol': 1e-13,
+                                  'tol': 1e-12,
                                   'sparse': True,
                                   # 'disp': True  # bugged
                               })
@@ -164,7 +164,6 @@ class Model:
 
         # Sort by produced, descending
         resources = resources[(-rates[:, 0]).argsort()]
-        rates = resources['rates']
 
         width = max(len(n) for n in resources['name'])
         titles = ('Produced', 'Consumed', 'Excess')
@@ -206,8 +205,7 @@ def main():
     model = Model(load_matrix('recipes.npz'),
                   *load_meta('recipe-names.npz'))
 
-    # There's only one player, and he doesn't want to do a lot of manual labour
-    # unless really
+    # There's only one player, and he doesn't want to do a lot of manual labour unless really
     # necessary
     model.max_players(1)
     model.player_laziness(100)
@@ -215,8 +213,7 @@ def main():
     # Closed system - no resource rate deficits
     model.min_resource(model.resources_but(), 0)
 
-    # The excesses of the petrochemical subsystem must equal each other to
-    # prevent backups
+    # The excesses of the petrochemical subsystem must equal each other to prevent backups
     model.petro_equilibria()
 
     # These are the things we want to minimize
