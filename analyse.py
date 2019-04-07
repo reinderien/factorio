@@ -116,6 +116,7 @@ class Model:
         f.write('\n\n')
         self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 2)
 
+        # Initialize rates based on recipe and solution
         self.title(f, 'Resources')
         resources = np.empty(self.n_resources,
                              dtype=[
@@ -123,16 +124,21 @@ class Model:
                                  ('name', f'U{max(len(r) for r in self.res_names)}'),
                              ])
         rates = resources['rates']
-        np.matmul(+self.recipes.clip(min=0), self.result.x, out=rates[:, 0])
-        np.matmul(-self.recipes.clip(max=0), self.result.x, out=rates[:, 1])
-        np.matmul(+self.recipes,             self.result.x, out=rates[:, 2])
+        np.matmul(+self.recipes.clip(min=0), self.result.x, out=rates[:, 0])  # Produced
+        np.matmul(-self.recipes.clip(max=0), self.result.x, out=rates[:, 1])  # Consumed
+        np.matmul(+self.recipes,             self.result.x, out=rates[:, 2])  # Excess
         resources['name'] = self.res_names
-        resources.sort(order='rates')  # todo - broken
 
+        # Sort by produced, descending
+        resources = resources[(-rates[:, 0]).argsort()]
+        rates = resources['rates']
+
+        # Filter by rates above a small margin
         eps = 1e-2
         to_show = np.any(np.abs(rates) > eps, axis=1)
+        resources = resources[to_show]
 
-        width = max(len(n) for n in self.res_names[to_show])
+        width = max(len(n) for n in resources['name'])
         titles = ('Produced', 'Consumed', 'Excess')
         name_fmt = f'{{:{width}}} '
         fmt = name_fmt + ' '.join(
