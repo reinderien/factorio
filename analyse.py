@@ -69,6 +69,15 @@ class Model:
     def recipe_expense(self, recipes: np.ndarray, ex: float):
         self.rec_expenses[0, recipes] = ex
 
+    def set_recipe(self, recipes: np.ndarray, v: float):
+        # todo - vectorize this properly - this is bad
+        to_add = np.zeros((np.count_nonzero(recipes), self.n_recipes))
+        for i, j in enumerate(np.argwhere(recipes)):
+            to_add[i, j] = 1
+        self.A_eq = np.concatenate((self.A_eq, to_add))
+        col = np.full((to_add.shape[0], 1), v)
+        self.b_eq = np.concatenate((self.b_eq, col))
+
     def min_resource(self, resources: np.ndarray, rate: float):
         self._add_ub(-self.recipes[resources, :], -rate)
 
@@ -111,7 +120,7 @@ class Model:
                                   # 'disp': True  # bugged
                               })
         # Trim off any non-zero recipes caused by algorithmic error
-        eps = 1e-6
+        eps = 1e-4
         self.result.x[self.result.x < eps] = 0
 
     @staticmethod
@@ -143,7 +152,7 @@ class Model:
         f.write(f'{self.result.nit} iterations\n')
         f.write(self.result.message)
         f.write('\n\n')
-        self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 1)
+        self.diminishing_table(f, 'Recipe counts', self.result.x, self.rec_names, 4)
 
         # Initialize rates based on recipe and solution
         self.title(f, 'Resources')
@@ -223,17 +232,26 @@ def stinky_space(model):
 
 
 def force_nuclear(model):
+    model.min_resource(model.these_resources(
+        'Steam500', 'Heat', 'Water', 'Uranium fuel cell', 'Uranium-235', 'Uranium-238',
+        'Uranium ore', 'Used up uranium fuel cell'
+    ), 0)
     model.max_players(1)
     model.player_laziness(100)
-    model.min_resource(model.resources_but(), 0)
-    model.max_recipe(model.recipes_containing('Steam165'))
+    model.max_recipe(model.recipes_containing('Steam165'), 0.1)
+    model.max_recipe(model.these_recipes('Energy (Solar panel)'), 0.1)
     model.resource_expense(model.these_resources('Pollution', 'Area'), 1)
-    model.min_recipe(model.these_recipes('Space science pack (Rocket silo)'), 1)
+    model.min_resource(model.these_resources('Energy'), 40e6)  # 2.2e9
+    model.set_recipe(model.these_recipes(
+        'Used up uranium fuel cell (Nuclear reactor) '
+        'fueled by uranium fuel cell'), 1)
+    # model.resource_expense(model.these_resources('Energy'), -1)
 
 
 def main():
     model = Model(load_matrix('recipes.npz'), *load_meta('recipe-names.npz'))
     stinky_space(model)
+    # force_nuclear(model)
     model.run()
     model.print(stdout)
 
