@@ -58,7 +58,7 @@ class Item:
             ex_rate = 10e6 * 60 / 5.82e6
             self.recipes = (
                 {
-                    'process': 'Steam (Boiler)',
+                    'process': 'Steam165 (Boiler)',
                     'building': 'Boiler',
                     'inputs': {
                         'Water': 60,
@@ -69,7 +69,7 @@ class Item:
                     }
                 },
                 {
-                    'process': 'Steam (Heat exchanger)',
+                    'process': 'Steam500 (Heat exchanger)',
                     'building': 'Heat exchanger',
                     'inputs': {
                         'Water': ex_rate,
