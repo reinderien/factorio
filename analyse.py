@@ -2,10 +2,11 @@
 
 import numpy as np
 from math import ceil, log10
+from numpy.core import defchararray
 from scipy.optimize import linprog, OptimizeResult, show_options
 from scipy.sparse import csr_matrix, load_npz
 from sys import stdout
-from typing import Iterable, List, TextIO
+from typing import Iterable, TextIO
 
 
 class Model:
@@ -34,9 +35,6 @@ class Model:
         new_b = np.full((a.shape[0], 1), b)
         self.b_ub = np.concatenate((self.b_ub, new_b))
 
-    def _manual_idx(self) -> List[bool]:
-        return ['manual' in r.lower() for r in self.rec_names]
-
     def these_resources(self, *these: str) -> np.ndarray:
         return np.isin(self.res_names, these)
 
@@ -48,6 +46,9 @@ class Model:
 
     def recipes_but(self, *these: str) -> np.ndarray:
         return np.logical_not(self.these_recipes(*these))
+
+    def recipes_containing(self, sub: str):
+        return defchararray.find(self.rec_names, sub) != -1
 
     def resource_equilibria(self, resources: np.ndarray):
         to_add = self.recipes[resources, :]
@@ -81,10 +82,11 @@ class Model:
         self._add_ub(np.expand_dims(np.where(recipes, 1, 0), 0), rate)
 
     def player_laziness(self, l: float):
-        self.rec_expenses[0, self._manual_idx()] += l
+        self.rec_expenses[0, self.recipes_containing('anual')] += l
 
     def max_players(self, players: float):
-        self._add_ub(np.expand_dims(np.where(self._manual_idx(), 1, 0), 0), players)
+        manual = self.recipes_containing('anual')
+        self._add_ub(np.expand_dims(np.where(manual, 1, 0), 0), players)
 
     @classmethod
     def show_options(cls):
@@ -201,10 +203,7 @@ def load_matrix(fn) -> csr_matrix:
     return recipes
 
 
-def main():
-    model = Model(load_matrix('recipes.npz'),
-                  *load_meta('recipe-names.npz'))
-
+def stinky_space(model):
     # There's only one player, and he doesn't want to do a lot of manual labour unless really
     # necessary
     model.max_players(1)
@@ -214,7 +213,7 @@ def main():
     model.min_resource(model.resources_but(), 0)
 
     # The excesses of the petrochemical subsystem must equal each other to prevent backups
-    model.petro_equilibria()
+    # model.petro_equilibria()
 
     # These are the things we want to minimize
     model.resource_expense(model.these_resources('Pollution', 'Area'), 1)
@@ -222,6 +221,19 @@ def main():
     # This is our desired output
     model.min_recipe(model.these_recipes('Space science pack (Rocket silo)'), 1)
 
+
+def force_nuclear(model):
+    model.max_players(1)
+    model.player_laziness(100)
+    model.min_resource(model.resources_but(), 0)
+    model.max_recipe(model.recipes_containing('Steam165'))
+    model.resource_expense(model.these_resources('Pollution', 'Area'), 1)
+    model.min_recipe(model.these_recipes('Space science pack (Rocket silo)'), 1)
+
+
+def main():
+    model = Model(load_matrix('recipes.npz'), *load_meta('recipe-names.npz'))
+    stinky_space(model)
     model.run()
     model.print(stdout)
 
