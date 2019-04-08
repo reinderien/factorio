@@ -304,9 +304,11 @@ class RecipeFactory:
                     fuel = all_items[fuel_name]
                     fuel_value = parse_power(fuel.fuel_value)
                     new_kwargs = dict(kwargs)
-                    new_kwargs['title'] = (f'{self.resource} '
-                                           f'({producer} '
-                                           f'fueled by {fuel_name})')
+                    if self.title:
+                        title = self.title
+                    else:
+                        title = f'{self.resource} ({producer})'
+                    new_kwargs['title'] = f'{title} fueled by {fuel_name}'
 
                     recipe = self.produce(cls, producer, **new_kwargs)
                     recipe.rates[fuel.title] = energy / fuel_value
