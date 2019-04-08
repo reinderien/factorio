@@ -234,12 +234,12 @@ def stinky_space(model):
 def force_nuclear(model):
     model.min_resource(model.these_resources(
         'Steam500', 'Heat', 'Water', 'Uranium fuel cell', 'Uranium-235', 'Uranium-238',
-        'Uranium ore', 'Used up uranium fuel cell'
+        'Uranium ore', 'Used up uranium fuel cell', 'Steam165'
     ), 0)
     model.max_players(1)
     model.player_laziness(100)
-    model.max_recipe(model.recipes_containing('Steam165'), 0.1)
-    model.max_recipe(model.these_recipes('Energy (Solar panel)'), 0.1)
+    model.max_recipe(model.recipes_containing('Steam165'), 1e-9)
+    model.max_recipe(model.these_recipes('Energy (Solar panel)'), 10)
     model.resource_expense(model.these_resources('Pollution', 'Area'), 1)
     model.min_resource(model.these_resources('Energy'), 40e6)  # 2.2e9
     model.set_recipe(model.these_recipes(
@@ -250,8 +250,8 @@ def force_nuclear(model):
 
 def main():
     model = Model(load_matrix('recipes.npz'), *load_meta('recipe-names.npz'))
-    stinky_space(model)
-    # force_nuclear(model)
+    # stinky_space(model)
+    force_nuclear(model)
     model.run()
     model.print(stdout)
 
