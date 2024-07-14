@@ -1,79 +1,116 @@
 #!/usr/bin/env python3
 
-import json, lzma, re
-from os.path import getsize
+import json, lzma, pathlib, re
+import typing
+
 from requests import Session
-from sys import stdout
-
-session = Session()
 
 
-def get_mediawiki(content=False, progress=None, **kwargs):
+class ProgressCallback(typing.Protocol):
+    def __call__(self, so_far: int, total: int) -> None: ...
+
+
+def get_mediawiki(
+    session: Session,
+    content: bool = False,
+    progress: ProgressCallback | None = None,
+    **kwargs: typing.Any,
+) -> typing.Iterator[dict[str, str]]:
     """
     https://stable.wiki.factorio.com is an instance of MediaWiki.
     The API endpoint is
     https://stable.wiki.factorio.com/api.php
     """
-    params = {'action': 'query',
-              'format': 'json',
-              **kwargs}
+    params = {
+        'action': 'query',
+        'format': 'json',
+        **kwargs,
+    }
     if content:
-        params.update({'prop': 'revisions',
-                       'rvprop': 'content'})
+        params.update({
+            'prop': 'revisions',
+            'rvprop': 'content',
+        })
+
     so_far = 0
     while True:
-        resp = session.get('https://stable.wiki.factorio.com/api.php',
-                           params=params)
-        resp.raise_for_status()
+        with session.get(
+            url='https://wiki.factorio.com/api.php',
+            params=params,
+        ) as resp:
+            resp.raise_for_status()
+            doc = resp.json()
 
-        doc = resp.json()
         pages = doc['query']['pages'].values()
+
         if content:
             full_pages = tuple(p for p in pages if 'revisions' in p)
+            so_far += len(full_pages)
             if progress:
-                so_far += len(full_pages)
                 progress(so_far, len(pages))
             yield from full_pages
         else:
             yield from pages
 
-        if 'batchcomplete' in doc:
+        if 'batchcomplete' in doc.keys():
             break
         params.update(doc['continue'])
 
 
-def get_category(name, content=False, progress=None, **kwargs):
-    return get_mediawiki(content=content, progress=progress,
-                         generator='categorymembers',
-                         gcmtitle=f'Category:{name}',
-                         gcmtype='page',
-                         gcmlimit=500,
-                         **kwargs)
+def get_category(
+    session: Session,
+    name: str,
+    content: bool = False,
+    progress=None,
+    **kwargs: typing.Any,
+) -> typing.Iterator[dict[str, str]]:
+    return get_mediawiki(
+        session=session,
+        content=content,
+        progress=progress,
+        generator='categorymembers',
+        gcmtitle=f'Category:{name}',
+        gcmtype='page',
+        gcmlimit=500,
+        **kwargs,
+    )
 
 
-def get_archived_titles():
-    return get_category('Archived')
+def get_archived_titles(session: Session) -> typing.Iterator[dict[str, str]]:
+    return get_category(session=session, name='Archived')
 
 
-def get_infoboxes(progress):
-    return get_category('Infobox_page', content=True, progress=progress)
+def get_infoboxes(
+    session: Session,
+    progress: ProgressCallback | None,
+) -> typing.Iterator[dict[str, str]]:
+    return get_category(
+        session=session, name='Infobox_page', content=True, progress=progress,
+    )
 
 
-def get_inter_tables(titles, progress):
-    return get_mediawiki(content=True, progress=progress,
-                         titles='|'.join(titles))
+def get_inter_tables(
+    session: Session,
+    titles: typing.Iterable[str],
+    progress: ProgressCallback | None,
+) -> typing.Iterator[dict[str, str]]:
+    return get_mediawiki(
+        session=session, content=True, progress=progress,
+        titles='|'.join(titles),
+    )
 
 
 line_re = re.compile(r'\n\s*\|')
-var_re = re.compile(
-    r'^\s*'
-    r'(\S+)'
-    r'\s*=\s*'
-    r'(.+?)'
-    r'\s*$')
+var_re = re.compile(r'''(?x)
+    ^\s*
+    (\S+)
+    \s*=\s*
+    (.+?)
+    \s*$
+''')
 
 
-def parse_infobox(page):
+def parse_infobox(page: dict[str, typing.Any]) -> dict[str, str]:
     """
     Example:
 
@@ -146,7 +183,7 @@ row_image_re = re.compile(
 )
 
 
-def iter_cells(row):
+def iter_cells(row: str) -> typing.Iterator:
     """
     e.g.
     | {{Icon|Solid fuel from light oil||}}
@@ -171,7 +208,10 @@ def iter_cells(row):
         yield cell
 
 
-def parse_inter_table(page):
+def parse_inter_table(page: dict[str, typing.Any]) -> tuple[
+    str,  # title
+    dict[str, typing.Any],  #
+]:
     """
     Example:
 
@@ -248,50 +288,65 @@ def parse_inter_table(page):
     return title, {'recipes': rows}
 
 
-def inter_needed(items):
-    return (i['title'] for i in items if
-            not i['archived']
-            and i.get('category') == 'Intermediate products'
-            and not ('cost' in i or 'recipe' in i))
+def inter_needed(items: typing.Iterable) -> typing.Iterator[str]:
+    return (
+        i['title'] for i in items
+        if not i['archived']
+        and i.get('category') == 'Intermediate products'
+        and not ('cost' in i or 'recipe' in i)
+    )
 
 
-def save(fn, recipes):
+def save(fn: pathlib.Path, recipes: dict[str, typing.Any]) -> None:
     with lzma.open(fn, 'wt') as f:
         json.dump(recipes, f, indent=4)
 
 
-def main():
+def main() -> None:
     def progress(so_far, total):
-        print(f'{so_far}/{total} {so_far/total:.0%}', end='\r')
-        stdout.flush()
+        print(f'{so_far}/{total} {so_far/total:.0%}', end='\r', flush=True)
 
-    print('Getting archived items... ', end='')
-    archived_titles = {p['title'] for p in get_archived_titles()}
-    print(len(archived_titles))
+    with Session() as session:
+        session.headers['Accept'] = 'application/json'
 
-    print('Getting item content...')
-    items = tuple(parse_infobox(p) for p in get_infoboxes(progress))
-    items_by_name = {i['title']: i for i in items}
-    for item in items:
-        item['archived'] = item['title'] in archived_titles
+        print('Getting archived items... ', end='')
+        archived_titles = {
+            p['title']
+            for p in get_archived_titles(session=session)
+        }
+        print(len(archived_titles))
 
-    print('\nFilling in intermediate products...')
-    inter_tables = get_inter_tables(inter_needed(items), progress)
-    used = 0
-    for table_page in inter_tables:
-        try:
-            title, recipes = parse_inter_table(table_page)
-            if recipes:
-                used += 1
-                items_by_name[title].update(recipes)
-        except Exception as e:
-            print(f'\nWarning: {table_page["title"]} failed to parse - {e}')
+        print('Getting item content...')
+        items: tuple[dict[str, str | bool], ...] = tuple(
+            parse_infobox(p)
+            for p in get_infoboxes(session=session, progress=progress)
+        )
+        items_by_name = {i['title']: i for i in items}
+        for item in items:
+            item['archived'] = item['title'] in archived_titles
+
+        print('\nFilling in intermediate products...')
+        inter_tables = get_inter_tables(
+            session=session,
+            titles=inter_needed(items),
+            progress=progress,
+        )
+        used = 0
+        for table_page in inter_tables:
+            try:
+                title, recipes = parse_inter_table(table_page)
+                if recipes:
+                    used += 1
+                    items_by_name[title].update(recipes)
+            except Exception as e:
+                print(f'\nWarning: {table_page["title"]} failed to parse - {e}')
+
     print(f'\n{used} intermediate tables used.')
 
-    fn = 'items.json.xz'
+    fn = pathlib.Path('items.json.xz')
     print(f'Saving to {fn}... ', end='')
-    save(fn, items_by_name)
-    print(f'{getsize(fn)//1024} kiB')
+    save(fn=fn, recipes=items_by_name)
+    print(f'{fn.stat().st_size//1024} KiB')
 
 
 if __name__ == '__main__':
