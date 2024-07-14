@@ -38,7 +38,7 @@ ItemData = typing.TypedDict(
         'products': str,
         'consumers': str,
         'archived': bool,
-        'recipes': tuple[RecipeData, ...]
+        'recipes': tuple[RecipeData, ...],
     },
 )
 
@@ -249,8 +249,7 @@ class RecipeFactory:
                 else:
                     needs_producers = True
             else:
-                if resource.mining_time or \
-                        resource.title in {'Crude oil', 'Water'}:
+                if resource.mining_time or resource.title in {'Crude oil', 'Water'}:
                     self.rates = {}
                     if resource.title != 'Raw wood':
                         needs_producers = True
@@ -314,7 +313,9 @@ class RecipeFactory:
         kwargs.setdefault('title', self.title)
         recipe = cls(self.resource.title, producer, self.rates, **kwargs)
         if producer.pollution:
-            recipe.rates['Pollution'] = float(producer.pollution)
+            # e.g. 4{{Translation|/m}}
+            pollution = producer.pollution.split('{', maxsplit=1)[0]
+            recipe.rates['Pollution'] = float(pollution)
 
         dims = tuple(float(x) for x in producer.dimensions.split('×'))
         recipe.rates['Area'] = dims[0] * dims[1]
@@ -421,7 +422,7 @@ def parse_producers(s: str) -> typing.Iterator[Item]:
         elif p == 'mining drill':
             yield from (all_items[f'{t} mining drill']
                         for t in ('burner', 'electric'))
-        elif p == 'manual' or barrel_re.match(p):
+        elif p in {'manual', 'player'} or barrel_re.match(p):
             continue
         else:
             yield all_items[p]
