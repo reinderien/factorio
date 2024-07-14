@@ -279,8 +279,14 @@ class RecipeFactory:
     def parse_side(s: str) -> dict[str, float]:
         out = {}
         for pair in s.split('+'):
-            k, v = pair.split(',')
-            out[k.strip()] = float(v.strip())
+            parts = pair.split(',')
+            if len(parts) == 1:  # 'alien artifact' edge case
+                k, = parts
+                v = 1
+            else:
+                k, v_str = parts
+                v = float(v_str.strip())
+            out[k.strip()] = v
         return out
 
     @staticmethod
