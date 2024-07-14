@@ -329,7 +329,7 @@ def main() -> None:
             p['title']
             for p in get_archived_titles(session=session)
         }
-        print(len(archived_titles))
+        print('at least', len(archived_titles))
 
         print('Getting item content...')
         items: tuple[dict[str, str | int | bool], ...] = tuple(
@@ -338,7 +338,10 @@ def main() -> None:
         )
         items_by_name = {i['title']: i for i in items}
         for item in items:
-            item['archived'] = item['title'] in archived_titles
+            item['archived'] = (
+                item['title'] in archived_titles
+                or '(archived)' in item['title']  # edge case: Wood (archived)
+            )
 
         print('\nFilling in intermediate products...')
         inter_tables = get_inter_tables(
