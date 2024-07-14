@@ -120,7 +120,7 @@ class Item:
                 any(self.data.get(k) for k in ('cost', 'recipe', 'recipes'))
                 or 'mining-hardness' in self.data
                 or self.title in {
-                    'Crude oil', 'Water', 'Space science pack', 'Steam',
+                    'Coal', 'Crude oil', 'Water', 'Wood', 'Space science pack', 'Steam',
                 }
             )
         )
@@ -389,7 +389,7 @@ class RecipeFactory:
                 yield from self.for_energy(Recipe)
         elif self.resource.title == 'Raw wood':
             yield from self.wood_mining()
-        elif self.resource.mining_time:
+        elif self.resource.mining_time is not None and self.resource.mining_hardness is not None:
             yield from self.for_energy(
                 MiningRecipe,
                 mining_hardness=float(self.resource.mining_hardness),
