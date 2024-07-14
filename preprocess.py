@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 
-import json, lzma, re
+import json, lzma, pathlib, re, typing
 import numpy as np
+import scipy.sparse
 from collections import defaultdict
-from os.path import getsize
-from scipy.sparse import lil_matrix, save_npz
-from sys import stdout
-from typing import Dict, Iterable, Set, Sequence
 
 
 power_re = re.compile(r'([0-9.]+) .*([kMG])[WJ]')
@@ -16,44 +13,74 @@ si_facs = {
 }
 
 
+class RecipeData(typing.TypedDict):
+    building: str
+    process: str
+    inputs: dict[str, float]
+    outputs: dict[str, float]
+
+
+ItemData = typing.TypedDict(
+    'ItemData',
+    total=False,
+    fields={
+        'pageid': int,
+        'title': str,
+        'prototype-type': str,
+        'internal-name': str,
+        'expensive-total-raw': str,
+        'expensive-recipe': str,
+        'category': str,
+        'stack-size': str,  # of an int
+        'recipe': str,
+        'total-raw': str,
+        'required-technologies': str,
+        'products': str,
+        'consumers': str,
+        'archived': bool,
+        'recipes': tuple[RecipeData, ...]
+    },
+)
+
+
 class Item:
-    def __init__(self, data: dict):
+    def __init__(self, data: ItemData) -> None:
         self.data = data
-        (
-            self.archived,
-            self.cost,
-            self.cost_multiplier,
-            self.crafting_speed,
-            self.dimensions,
-            self.energy,
-            self.fluid_consumption,
-            self.fuel_value,
-            self.mining_hardness,
-            self.mining_power,
-            self.mining_speed,
-            self.mining_time,
-            self.pollution,
-            self.power_output,
-            self.producers,
-            self.prototype_type,
-            self.recipe,
-            self.recipes,
-            self.title,
-            self.valid_fuel
-        ) = (None,)*20
-        self.__dict__.update({k.replace('-', '_'): v
-                              for k, v in data.items()})
+
+        self.archived: bool = False
+        self.cost: str | None = None
+        self.cost_multiplier: str | None = None
+        self.crafting_speed: str | None = None
+        self.dimensions: str | None = None
+        self.energy: str | None = None
+        self.fluid_consumption: str | None = None
+        self.fuel_value: str | None = None
+        self.mining_hardness: str | None = None
+        self.mining_power: str | None = None
+        self.mining_speed: str | None = None
+        self.mining_time: str | None = None
+        self.pollution: str | None = None
+        self.power_output: str | None = None
+        self.producers: str | None = None
+        self.prototype_type: str | None = None
+        self.recipe: str | None = None
+        self.recipes: tuple[RecipeData, ...] = ()
+        self.title: str | None = None
+        self.valid_fuel: str | None = None
+
+        self.__dict__.update({
+            k.replace('-', '_'): v
+            for k, v in data.items()
+        })
         self.fill_gaps()
 
-    def fill_gaps(self):
+    def fill_gaps(self) -> None:
         if self.prototype_type == 'technology':
             self.producers = 'Lab'
-        elif self.title in ('Flamethrower turret', 'Gun turret',
-                            'Laser turret'):
+        elif self.title in {'Flamethrower turret', 'Gun turret', 'Laser turret'}:
             self.producers = 'Assembling machine + manual'
         elif self.title == 'Space science pack':
-            self.recipe = 'Time, 41.25 + Rocket part, 100 = ' \
-                          'Space science pack, 1000'
+            self.recipe = 'Time, 41.25 + Rocket part, 100 = Space science pack, 1000'
         elif self.title == 'Steam':
             ex_rate = 10e6 * 60 / 5.82e6
             self.recipes = (
@@ -62,23 +89,23 @@ class Item:
                     'building': 'Boiler',
                     'inputs': {
                         'Water': 60,
-                        'Time': 1
+                        'Time': 1,
                     },
                     'outputs': {
-                        'Steam165': 60
-                    }
+                        'Steam165': 60,
+                    },
                 },
                 {
                     'process': 'Steam500 (Heat exchanger)',
                     'building': 'Heat exchanger',
                     'inputs': {
                         'Water': ex_rate,
-                        'Time': 1
+                        'Time': 1,
                     },
                     'outputs': {
-                        'Steam500': ex_rate
-                    }
-                }
+                        'Steam500': ex_rate,
+                    },
+                },
             )
 
     def __str__(self) -> str:
@@ -92,14 +119,13 @@ class Item:
             (
                 any(self.data.get(k) for k in ('cost', 'recipe', 'recipes'))
                 or 'mining-hardness' in self.data
-                or self.title in {'Crude oil',
-                                  'Water',
-                                  'Space science pack',
-                                  'Steam'}
+                or self.title in {
+                    'Crude oil', 'Water', 'Space science pack', 'Steam',
+                }
             )
         )
 
-    def get_recipes(self) -> Iterable:
+    def get_recipes(self) -> typing.Iterator:
         if self.recipes:
             for rates in self.recipes:
                 fac = RecipeFactory(self, rates=rates)
@@ -110,16 +136,16 @@ class Item:
 
     def mine_rate(self, mining_hardness: float, mining_time: float) -> float:
         return (
-                (float(self.mining_power) - mining_hardness)
-                * float(self.mining_speed) / mining_time
+            (float(self.mining_power) - mining_hardness)
+            * float(self.mining_speed) / mining_time
         )
 
 
-all_items: Dict[str, Item] = None
+all_items: dict[str, Item] = {}
 
 
 class ManualMiner:
-    def __init__(self, tool: Item):
+    def __init__(self, tool: Item) -> None:
         self.tool = tool
         self.title = f'Manual with {tool}'
         self.pollution = 0
@@ -130,14 +156,16 @@ class ManualMiner:
 
     def mine_rate(self, mining_hardness: float, mining_time: float) -> float:
         return (
-                0.6 * (float(self.tool.mining_power) - mining_hardness)
-                / mining_time
+            0.6 * (float(self.tool.mining_power) - mining_hardness)
+            / mining_time
         )
 
 
 class Recipe:
-    def __init__(self, resource: str, producer: Item, rates: dict,
-                 title: str = None):
+    def __init__(
+        self, resource: str, producer: Item, rates: dict,
+        title: str | None = None,
+    ) -> None:
         self.resource = resource
         if title:
             self.title = title
@@ -151,7 +179,7 @@ class Recipe:
     def __str__(self) -> str:
         return self.title
 
-    def multiply_producer(self, prod: Item):
+    def multiply_producer(self, prod: Item) -> None:
         if prod.title in {'Boiler', 'Heat exchanger', 'Solar panel',
                           'Steam engine', 'Steam turbine'}:
             pass  # no crafting rate modifier
@@ -164,12 +192,14 @@ class Recipe:
 
 
 class MiningRecipe(Recipe):
-    def __init__(self, resource: str, producer: Item, rates: dict,
-                 mining_hardness: float, mining_time: float, title: str = ''):
+    def __init__(
+        self, resource: str, producer: Item, rates: dict,
+        mining_hardness: float, mining_time: float, title: str = '',
+    ) -> None:
         self.mining_hardness, self.mining_time = mining_hardness, mining_time
         super().__init__(resource, producer, rates, title)
 
-    def multiply_producer(self, miner: Item):
+    def multiply_producer(self, miner: Item) -> None:
         self.rates[self.resource] = self.producer.mine_rate(
             self.mining_hardness, self.mining_time
         )
@@ -178,18 +208,20 @@ class MiningRecipe(Recipe):
 
 
 class TechRecipe(Recipe):
-    def __init__(self, resource: str, producer: Item, rates: dict,
-                 cost_multiplier: float, title: str = ''):
+    def __init__(
+        self, resource: str, producer: Item, rates: dict,
+        cost_multiplier: float, title: str = '',
+    ) -> None:
         self.cost_multiplier = cost_multiplier
         super().__init__(resource, producer, rates, title)
 
-    def multiply_producer(self, lab: Item):
+    def multiply_producer(self, lab: Item) -> None:
         self.rates[self.resource] /= self.cost_multiplier
 
 
 class FluidRecipe(Recipe):
-    # Pumpjacks, offshore pumps
-    def multiply_producer(self, producer: Item):
+    """Pump jacks, offshore pumps"""
+    def multiply_producer(self, producer: Item) -> None:
         if producer.title == 'Pumpjack':
             yield_factor = 1.00  # Assumed
             rate = 10*yield_factor
@@ -201,7 +233,7 @@ class FluidRecipe(Recipe):
 
 
 class RecipeFactory:
-    def __init__(self, resource: Item, rates: dict = None):
+    def __init__(self, resource: Item, rates: dict | None = None) -> None:
         self.resource = resource
         self.producers = ()
         if rates:
@@ -230,7 +262,11 @@ class RecipeFactory:
     def __str__(self) -> str:
         return self.title
 
-    def intermediate(self, rates) -> (Iterable[Item], str, dict):
+    def intermediate(self, rates) -> tuple[
+        typing.Iterable[Item],
+        str,
+        dict,
+    ]:
         building = rates.get('building')
         if building:
             producers = (all_items[building.lower()],)
@@ -241,7 +277,7 @@ class RecipeFactory:
         return producers, title, sane_rates
 
     @staticmethod
-    def parse_side(s: str) -> Dict[str, float]:
+    def parse_side(s: str) -> dict[str, float]:
         out = {}
         for pair in s.split('+'):
             k, v = pair.split(',')
@@ -249,8 +285,9 @@ class RecipeFactory:
         return out
 
     @staticmethod
-    def calc_recipe(inputs: Dict[str, float],
-                    outputs: Dict[str, float]) -> Dict[str, float]:
+    def calc_recipe(
+        inputs: dict[str, float], outputs: dict[str, float],
+    ) -> dict[str, float]:
         rates = defaultdict(float, outputs)
         if 'time' in inputs:
             k = 'time'
@@ -263,7 +300,7 @@ class RecipeFactory:
             rates[k] -= v / t
         return rates
 
-    def parse_recipe(self, recipe: str) -> Dict[str, float]:
+    def parse_recipe(self, recipe: str) -> dict[str, float]:
         if '=' in recipe:
             inputs, outputs = recipe.split('=')
             outputs = self.parse_side(outputs)
@@ -284,7 +321,7 @@ class RecipeFactory:
 
         return recipe
 
-    def for_energy(self, cls, **kwargs) -> Iterable[Recipe]:
+    def for_energy(self, cls, **kwargs) -> typing.Iterable[Recipe]:
         for producer in self.producers:
             energy = -parse_power(producer.energy)
 
@@ -316,9 +353,9 @@ class RecipeFactory:
             else:
                 raise NotImplementedError()
 
-    tree_re = re.compile(r'(\d+) .*?\|([^}|]+)\}')
+    tree_re = re.compile(r'(\d+) .*?\|([^}|]+)}')
 
-    def wood_mining(self) -> Iterable[MiningRecipe]:
+    def wood_mining(self) -> typing.Iterable[MiningRecipe]:
         miners = tuple(
             ManualMiner(tool)
             for tool in all_items.values()
@@ -333,7 +370,7 @@ class RecipeFactory:
                     mining_time=mining_time,
                     title=f'{self.resource} ({miner} from {source})')
 
-    def make(self) -> Iterable[Recipe]:
+    def make(self) -> typing.Iterator[Recipe]:
         if self.rates:
             if self.resource.prototype_type == 'technology':
                 yield self.produce(
@@ -363,15 +400,17 @@ def parse_power(s: str) -> float:
     return float(m[1]) * si_facs[m[2]]
 
 
-def items_of_type(t: str) -> Iterable[Item]:
-    return (i for i in all_items.values()
-            if i.prototype_type == t)
+def items_of_type(t: str) -> typing.Iterator[Item]:
+    return (
+        i for i in all_items.values()
+        if i.prototype_type == t
+    )
 
 
 barrel_re = re.compile(r'empty .+ barrel')
 
 
-def parse_producers(s: str) -> Iterable[Item]:
+def parse_producers(s: str) -> typing.Iterator[Item]:
     for p in s.split('+'):
         p = p.strip().lower()
         if p == 'furnace':
@@ -388,26 +427,25 @@ def parse_producers(s: str) -> Iterable[Item]:
             yield all_items[p]
 
 
-def trim(items: dict):
+def trim(items: dict[str, Item]) -> None:
     to_delete = tuple(k for k, v in items.items() if not v.keep)
     print(f'Dropping {len(to_delete)} items...')
     for k in to_delete:
         del items[k]
 
 
-def energy_data() -> dict:
+def energy_data() -> ItemData:
     solar_ave = parse_power(next(
         s for s in all_items['solar panel'].power_output.split('<br/>')
-        if 'average' in s))
+        if 'average' in s
+    ))
 
     eng = all_items['steam engine']
-    eng_rate = float(eng.fluid_consumption
-                     .split('/')[0])
+    eng_rate = float(eng.fluid_consumption.split('/')[0])
     eng_power = parse_power(eng.power_output)
 
     turbine = all_items['steam turbine']
-    turbine_rate = float(turbine.fluid_consumption
-                         .split('/')[0])
+    turbine_rate = float(turbine.fluid_consumption.split('/')[0])
     turbine_power_500 = 5.82e6  # ignore non-precise data and use this instead
     turbine_power_165 = 1.8e6   # from wiki page body
 
@@ -418,57 +456,56 @@ def energy_data() -> dict:
                 'building': 'Solar panel',
                 'process': 'Energy (Solar panel)',
                 'inputs': {
-                    'Time': 1
+                    'Time': 1,
                 },
                 'outputs': {
-                    'Energy': solar_ave
-                }
+                    'Energy': solar_ave,
+                },
             },
             {
                 'building': 'Steam engine',
                 'process': 'Energy (Steam engine)',
                 'inputs': {
                     'Time': 1,
-                    'Steam165': eng_rate
+                    'Steam165': eng_rate,
                 },
                 'outputs': {
-                    'Energy': eng_power
-                }
+                    'Energy': eng_power,
+                },
             },
             {
                 'building': 'Steam turbine',
                 'process': 'Energy (Steam turbine @ 165C)',
                 'inputs': {
                     'Time': 1,
-                    'Steam165': turbine_rate
+                    'Steam165': turbine_rate,
                 },
                 'outputs': {
-                    'Energy': turbine_power_165
-                }
+                    'Energy': turbine_power_165,
+                },
             },
             {
                 'building': 'Steam turbine',
                 'process': 'Energy (Steam turbine @ 500C)',
                 'inputs': {
                     'Time': 1,
-                    'Steam500': turbine_rate
+                    'Steam500': turbine_rate,
                 },
                 'outputs': {
-                    'Energy': turbine_power_500
-                }
+                    'Energy': turbine_power_500,
+                },
             }
         )
     }
 
 
-def load(fn: str):
+def load(fn: pathlib.Path) -> dict[str, Item]:
     with lzma.open(fn) as f:
-        global all_items
-        all_items = {k.lower(): Item(d) for k, d in json.load(f).items()}
-    all_items['energy'] = Item(energy_data())
+        items = {k.lower(): Item(d) for k, d in json.load(f).items()}
+    return items
 
 
-def get_recipes() -> (Dict[str, Recipe], Set[str]):
+def get_recipes() -> (dict[str, Recipe], set[str]):
     recipes = {}
     resources = set()
     for item in all_items.values():
@@ -480,12 +517,14 @@ def get_recipes() -> (Dict[str, Recipe], Set[str]):
     return recipes, resources
 
 
-def field_size(names: Iterable) -> int:
+def field_size(names: typing.Iterable) -> int:
     return max(len(str(o)) for o in names)
 
 
-def write_csv_for_r(recipes: Sequence[Recipe], resources: Sequence[str],
-                    fn: str):
+def write_csv_for_r(
+    recipes: typing.Sequence[Recipe], resources: typing.Sequence[str],
+    fn: pathlib.Path,
+) -> None:
     # Recipes going down, resources going right
 
     rec_width = field_size(recipes)
@@ -506,8 +545,10 @@ def write_csv_for_r(recipes: Sequence[Recipe], resources: Sequence[str],
                 f.write(col_format.format(x))
 
 
-def write_for_numpy(recipes: Sequence[Recipe], resources: Sequence[str],
-                    meta_fn: str, npz_fn: str):
+def write_for_numpy(
+    recipes: typing.Sequence[Recipe], resources: typing.Sequence[str],
+    meta_fn: pathlib.Path, npz_fn: pathlib.Path,
+) -> None:
     rec_names = [r.title for r in recipes]
     w_rec = max(len(r) for r in rec_names)
     recipe_names = np.array(rec_names, copy=False, dtype=f'U{w_rec}')
@@ -517,24 +558,26 @@ def write_for_numpy(recipes: Sequence[Recipe], resources: Sequence[str],
 
     np.savez_compressed(meta_fn, recipe_names=recipe_names, resource_names=resource_names)
 
-    rec_mat = lil_matrix((len(resources), len(recipes)))
+    rec_mat = scipy.sparse.lil_matrix((len(resources), len(recipes)))
     for j, rec in enumerate(recipes):
         for res, q in rec.rates.items():
             i = resources.index(res)
             rec_mat[i, j] = q
-    save_npz(npz_fn, rec_mat.tocsr())
+    scipy.sparse.save_npz(npz_fn, rec_mat.tocsr())
 
 
-def file_banner(fn):
-    print(f'{fn} {getsize(fn)//1024} kiB')
+def file_banner(fn: pathlib.Path) -> None:
+    print(f'{fn} {fn.stat().st_size//1024} KiB')
 
 
-def main():
-    fn = 'items.json.xz'
+def main() -> None:
+    fn = pathlib.Path('items.json.xz')
     print(f'Loading {fn}... ', end='')
-    load(fn)
+    global all_items
+    all_items = load(fn)
     print(f'{len(all_items)} items')
 
+    all_items['energy'] = Item(energy_data())
     trim(all_items)
 
     print('Calculating recipes... ', end='')
@@ -545,14 +588,14 @@ def main():
     recipes = sorted(recipes.values(), key=lambda i: i.title)
 
     print('Saving files for numpy...')
-    meta_fn, npz_fn = 'recipe-names.npz', 'recipes.npz'
+    meta_fn = pathlib.Path('recipe-names.npz')
+    npz_fn = pathlib.Path('recipes.npz')
     write_for_numpy(recipes, resources, meta_fn, npz_fn)
     file_banner(meta_fn)
     file_banner(npz_fn)
 
-    fn = 'recipes.csv.xz'
-    print(f'Saving recipes for use by R...')
-    stdout.flush()
+    fn = pathlib.Path('recipes.csv.xz')
+    print(f'Saving recipes for use by R...', flush=True)
     write_csv_for_r(recipes, resources, fn)
     file_banner(fn)
 
