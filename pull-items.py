@@ -161,29 +161,38 @@ def parse_infobox(page: dict[str, typing.Any]) -> dict[str, str]:
 
 part_tok = r'\s*([^|{}]*?)'
 border_tok = r'\s*\|'
-row_image_re = re.compile(
-    r'\{\{\s*'
-    r'(?P<type>\w+)'
-    f'{border_tok}'
-    f'{part_tok}'
-    r'(?:'
-       f'{border_tok}'    
-       f'{part_tok}'
-    r')?'
-    r'(?:'
-       f'{border_tok}'
-       r'[^{}]*'
-    r')?'
-    r'\}\}\s*'
-    r'(?P<sep>'
-      r'(?:'
-        r'\|\||\+|→'
-      r')?'
-    r')',
-)
+# e.g.
+# | {{Imagelink|Oil refinery}} || {{Imagelink|Advanced oil processing}}
+# || {{icon|Time|5}} + {{Icon|Crude oil|100}} + {{icon|Water|50}} →
+# {{Icon|Heavy oil|25}} + ({{Icon|Light oil|45}} + {{Icon|Petroleum gas|55}})
+row_image_re = re.compile(fr'''(?x)
+    \{{\{{\s*         # opening {{ braces
+    (?P<type>\w+?)    # type, e.g. ImageLink or icon
+    {border_tok}      # first inner | separator
+    {part_tok}        # part name
+    (?:               # non-capturing
+       {border_tok}   # second inner | separator
+       {part_tok}     # quantity, e.g. 100
+    )?                # optional
+    (?:               # non-capturing
+       {border_tok}   # third inner | separator
+       [^{{}}]*       # ...what is this?
+    )?                # optional
+    }}}}\s*           # closing }} braces
+    (?P<sep>          # arrow separator between recipe left and right sides
+      (?:
+        \|\||\+|→
+      )?
+    )
+''')
 
 
-def iter_cells(row: str) -> typing.Iterator:
+def iter_cells(row: str) -> typing.Iterator[tuple[
+    str,  # type, e.g. icon
+    str,  # name, e.g. Oil refinery
+    str | None,  # quantity, e.g. 100
+    typing.Literal['+', '→', ''],  # recipe operator
+]]:
     """
     e.g.
     | {{Icon|Solid fuel from light oil||}}
@@ -210,7 +219,7 @@ def iter_cells(row: str) -> typing.Iterator:
 
 def parse_inter_table(page: dict[str, typing.Any]) -> tuple[
     str,  # title
-    dict[str, typing.Any],  #
+    dict[str, typing.Any],  # recipes
 ]:
     """
     Example:
@@ -249,19 +258,23 @@ def parse_inter_table(page: dict[str, typing.Any]) -> tuple[
             .split('{|', maxsplit=1)[1]
             .rsplit('|}', maxsplit=1)[0])
     row_strings = body.split('|-')
-    heads = tuple(h.strip().lower() for h in row_strings[0]
-                  .split('!', maxsplit=1)[1]
-                  .split('!!'))
+    heads = tuple(
+        h.strip().lower()
+        for h in row_strings[0]
+            .split('!', maxsplit=1)[1]
+            .split('!!')
+    )
 
     for line in row_strings[1:]:
-        inputs = {}
-        outputs = {}
+        inputs: dict[str, int] = {}
+        outputs: dict[str, int] = {}
         row = {'inputs': inputs, 'outputs': outputs}
         for head, parts in zip(heads, iter_cells(line)):
-            if head in ('process', 'building'):
-                row[head.lower()] = parts[0][1]
+            if head in {'process', 'building'}:
+                type_, name, quantity = parts[0]
+                row[head.lower()] = name
                 continue
-            elif head not in ('input', 'output', 'results'):
+            elif head not in {'input', 'output', 'results'}:
                 if head == '':
                     return title, {}  # Space science pack edge case
                 raise ValueError(f'Unrecognized head {head}')
@@ -274,13 +287,15 @@ def parse_inter_table(page: dict[str, typing.Any]) -> tuple[
                 side = inputs
                 if 'results' not in head:
                     raise ValueError(f'Unexpected heading {head}')
-            for part in parts:
-                res_type = part[0].lower()
+            for type_, name, quantity, *other_parts in parts:
+                res_type = type_.lower()
                 if res_type != 'icon':
                     raise ValueError(f'Unexpected resource type {res_type}')
-                side[part[1]] = int(part[2])
-                if 'results' in head and len(part) == 4 and part[-1] == '→':
-                    side = outputs
+                side[name] = int(quantity)
+                if 'results' in head and len(other_parts) >= 1:
+                    operator = other_parts[0]
+                    if operator == '→':
+                        side = outputs
 
         if inputs or outputs:
             rows.append(row)
