@@ -266,8 +266,8 @@ def parse_inter_table(page: dict[str, typing.Any]) -> tuple[
     )
 
     for line in row_strings[1:]:
-        inputs: dict[str, int] = {}
-        outputs: dict[str, int] = {}
+        inputs: dict[str, float] = {}
+        outputs: dict[str, float] = {}
         row = {'inputs': inputs, 'outputs': outputs}
         for head, parts in zip(heads, iter_cells(line)):
             if head in {'process', 'building'}:
@@ -275,7 +275,7 @@ def parse_inter_table(page: dict[str, typing.Any]) -> tuple[
                 row[head.lower()] = name
                 continue
             elif head not in {'input', 'output', 'results'}:
-                if head == '':
+                if 'cost giving' in head:
                     return title, {}  # Space science pack edge case
                 raise ValueError(f'Unrecognized head {head}')
 
@@ -291,7 +291,7 @@ def parse_inter_table(page: dict[str, typing.Any]) -> tuple[
                 res_type = type_.lower()
                 if res_type != 'icon':
                     raise ValueError(f'Unexpected resource type {res_type}')
-                side[name] = int(quantity)
+                side[name] = float(quantity)
                 if 'results' in head and len(other_parts) >= 1:
                     operator = other_parts[0]
                     if operator == '→':
@@ -332,7 +332,7 @@ def main() -> None:
         print(len(archived_titles))
 
         print('Getting item content...')
-        items: tuple[dict[str, str | bool], ...] = tuple(
+        items: tuple[dict[str, str | int | bool], ...] = tuple(
             parse_infobox(p)
             for p in get_infoboxes(session=session, progress=progress)
         )
