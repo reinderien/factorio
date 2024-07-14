@@ -42,7 +42,7 @@ Factorio (0.17 as of this writing), and the other documenting the stable version
 
 To download and save the game's item database, issue
 
-    ./pull-recipes.py
+    ./pull-items.py
 
 To look at the resulting (large) JSON file, use `xzless`.
     
